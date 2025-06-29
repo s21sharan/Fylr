@@ -482,52 +482,11 @@ def get_file_hash(file_path):
 def print_separator():
     print("\n" + "=" * 80)
 
-def analyze_directory(directory_path, online_mode=False):
-    """Analyze the directory and return the file structure data"""
-    online_mode = log_mode_usage("analyze_directory", online_mode)
+def analyze_directory(directory_path, online_mode=True):
+    print("[DEBUG] Python organize: online_mode =", online_mode)
     logger.info(f"Starting directory analysis in {'ONLINE' if online_mode else 'OFFLINE'} mode")
     
-    # Add more explicit logging for debugging
-    if online_mode:
-        logger.info("🌐 ONLINE MODE: Using OpenAI API for file analysis and organization")
-        print("🌐 ONLINE MODE: Using OpenAI API for file analysis and organization")
-        
-        # Check limits before making API call
-        if not update_token_usage(0, "analyze_directory_precheck"):
-            logger.warning("Token or call limit reached, switching to offline mode")
-            online_mode = False
-            print("MODE_SWITCH:offline")
-        
-        if online_mode:
-            # Test OpenAI connectivity
-            try:
-                print("🧪 Testing OpenAI API connectivity...")
-                test_response = openai_client.responses.create(
-                    model="gpt-3.5-turbo",
-                    input=[{"role": "user", "content": "Respond with OK if you receive this message."}],
-                    max_tokens=10
-                )
-                test_result = test_response.output_text.strip()
-                print(f"🧪 OpenAI API test result: {test_result}")
-                logger.info(f"OpenAI API test successful: {test_result}")
-                
-                # Update token usage
-                if hasattr(test_response, 'usage'):
-                    if not update_token_usage(test_response.usage.total_tokens, "analyze_directory_test"):
-                        logger.warning("Token limit reached during directory analysis test")
-                        online_mode = False
-                        print("MODE_SWITCH:offline")
-            except Exception as e:
-                print(f"❌ OpenAI API test failed: {str(e)}")
-                logger.error(f"OpenAI API test failed: {str(e)}")
-                online_mode = False
-                print("MODE_SWITCH:offline")
-    else:
-        logger.info("🖥️ OFFLINE MODE: Using Local LLM (Ollama) for file analysis and organization")
-        print("🖥️ OFFLINE MODE: Using Local LLM (Ollama) for file analysis and organization")
-    
     files_to_process = []
-    
     for root, _, files in os.walk(directory_path):
         for file in files:
             file_path = os.path.join(root, file)
@@ -540,7 +499,6 @@ def analyze_directory(directory_path, online_mode=False):
     print_separator()
     
     file_summaries = []
-    
     print("GENERATING FILE SUMMARIES:")
     for file_path in files_to_process:
         print(f"\nAnalyzing: {file_path}")
@@ -559,7 +517,6 @@ def analyze_directory(directory_path, online_mode=False):
                 "file_path": summary["file_path"],
                 "summary": summary["summary"]
             })
-        
         print_separator()
         print("SENDING TO LLM:")
         print("\nSystem Prompt:")
@@ -568,37 +525,26 @@ def analyze_directory(directory_path, online_mode=False):
         print(json.dumps(formatted_input, indent=2))
         print_separator()
         
-        # Add explicit JSON formatting instruction
         messages = [
             {"role": "system", "content": "You must respond with ONLY valid JSON. No other text or explanations. The JSON must follow the schema: {\"files\": [{\"src_path\": \"path\", \"dst_path\": \"original_path/category/filename\"}]}"},
             {"role": "system", "content": FILE_PROMPT},
             {"role": "user", "content": json.dumps(formatted_input)}
         ]
-        
+        response_content = None
+        used_openai = False
         if online_mode:
-            logger.info("Using OpenAI for file structure generation")
-            logger.info("📤 SENDING REQUEST TO OPENAI API FOR FILE STRUCTURE GENERATION")
-            print("\n" + "*" * 80)
-            print("📤 SENDING REQUEST TO OPENAI API FOR FILE STRUCTURE GENERATION")
-            print("*" * 80)
-            
+            print("[DEBUG] Using OpenAI for file structure generation")
             try:
-                structure_response = openai_client.responses.create(
-                    model="gpt-4-turbo-preview",
-                    input=messages,
-                    temperature=0,
-                    max_tokens=2048
-                )
-                logger.info("📥 RECEIVED RESPONSE FROM OPENAI API FOR FILE STRUCTURE")
-                print("\n" + "*" * 80)
-                print("📥 RECEIVED RESPONSE FROM OPENAI API FOR FILE STRUCTURE")
-                print("*" * 80)
-                response_content = structure_response.output_text.strip()
-            except Exception as e:
-                logger.error(f"❌ ERROR USING OPENAI API FOR FILE STRUCTURE: {str(e)}")
-                print(f"❌ ERROR USING OPENAI API FOR FILE STRUCTURE: {str(e)}")
-                # Fallback to chat completions if responses API fails
                 try:
+                    structure_response = openai_client.responses.create(
+                        model="gpt-4-turbo-preview",
+                        input=messages,
+                        temperature=0,
+                        max_tokens=2048
+                    )
+                    response_content = structure_response.output_text.strip()
+                except Exception as e1:
+                    print("[DEBUG] responses.create failed, trying chat.completions.create:", str(e1))
                     structure_response = openai_client.chat.completions.create(
                         model="gpt-4-turbo-preview",
                         messages=messages,
@@ -606,43 +552,34 @@ def analyze_directory(directory_path, online_mode=False):
                         max_tokens=2048
                     )
                     response_content = structure_response.choices[0].message.content.strip()
-                except Exception as e2:
-                    logger.error(f"❌ ERROR USING OPENAI CHAT COMPLETIONS: {str(e2)}")
-                    print(f"❌ ERROR USING OPENAI CHAT COMPLETIONS: {str(e2)}")
-                    # Fallback to local LLM if both OpenAI methods fail
-                    logger.warning("Falling back to local LLM for file structure generation")
-                    print("Falling back to local LLM for file structure generation")
-                    structure_response = ollama_client.chat(
-                        model='mistral',
-                        messages=messages,
-                        options={"temperature": 0, "num_predict": 2048}
-                    )
-                    response_content = structure_response['message']['content'].strip()
-        else:
-            logger.info("Using Ollama for file structure generation")
-            logger.info("📤 SENDING REQUEST TO LOCAL LLM (OLLAMA)")
-            print("📤 SENDING REQUEST TO LOCAL LLM (OLLAMA)")
-            structure_response = ollama_client.chat(
-                model='mistral',
-                messages=messages,
-                options={"temperature": 0, "num_predict": 2048}
-            )
-            logger.info("📥 RECEIVED RESPONSE FROM LOCAL LLM")
-            print("📥 RECEIVED RESPONSE FROM LOCAL LLM")
-            response_content = structure_response['message']['content'].strip()
-        
+                print("[DEBUG] OpenAI API call succeeded, got response")
+                used_openai = True
+            except Exception as e:
+                print("[DEBUG] OpenAI API call failed for structure generation:", str(e))
+                logger.error(f"OpenAI API call failed: {str(e)}. Falling back to local LLM.")
+        if response_content is None:
+            print("[DEBUG] Using Ollama for file structure generation")
+            try:
+                structure_response = ollama_client.chat(
+                    model='mistral',
+                    messages=messages,
+                    options={"temperature": 0, "num_predict": 2048}
+                )
+                response_content = structure_response['message']['content'].strip()
+                print("[DEBUG] Ollama call succeeded, got response")
+            except Exception as e:
+                print("[DEBUG] Ollama call failed for structure generation:", str(e))
+                logger.error(f"Ollama call failed: {str(e)}")
+                return json.dumps({"files": []})
         print_separator()
         print("RAW LLM RESPONSE:")
         print(response_content)
         print_separator()
-        
         try:
-            # First try to parse the entire response as JSON
             try:
                 result = json.loads(response_content)
                 logger.info("Successfully parsed JSON response")
             except json.JSONDecodeError:
-                # If that fails, try to extract JSON from the response
                 logger.warning("Failed to parse full response as JSON, attempting to extract JSON portion")
                 json_start = response_content.find('{')
                 json_end = response_content.rfind('}') + 1
@@ -655,12 +592,10 @@ def analyze_directory(directory_path, online_mode=False):
                     print("\nError: Response is not in JSON format. Got:")
                     print(response_content[:500] + "..." if len(response_content) > 500 else response_content)
                     return json.dumps({"files": []})
-            
             print_separator()
             print("PARSED JSON RESULT:")
             print(json.dumps(result, indent=2))
             print_separator()
-            
             if "files" in result and isinstance(result["files"], list):
                 logger.info(f"Successfully generated file structure with {len(result['files'])} files")
                 print(f"\nSuccessfully generated file structure with {len(result['files'])} files")
@@ -675,7 +610,6 @@ def analyze_directory(directory_path, online_mode=False):
             print(f"\nError parsing response: {str(e)}")
             print("Raw response:", response_content[:500] + "..." if len(response_content) > 500 else response_content)
             return json.dumps({"files": []})
-    
     logger.warning("No valid file summaries found")
     print("\nNo valid file summaries found")
     return json.dumps({"files": []})
