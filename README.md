@@ -4,7 +4,7 @@ Fylr is a desktop application that uses AI to automatically organize and rename 
 
 ## 🎥 Demo
 
-Watch Fylr in action: [Demo Video](https://www.youtube.com/watch?v=EPlgKWeQvMo&t=10s&ab_channel=Fylr)
+Watch Fylr in action: [Demo Video]([https://www.youtube.com/watch?v=EPlgKWeQvMo&t=10s&ab_channel=Fylr](https://www.youtube.com/watch?v=EPlgKWeQvMo&t=10s&ab_channel=Fylr))
 
 ## Screenshots
 <img width="1326" height="941" alt="Screenshot 2025-04-13 at 1 24 22 AM" src="https://github.com/user-attachments/assets/17850af8-dcc3-41c9-9c4a-708f17a3957f" />
