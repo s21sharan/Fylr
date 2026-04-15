@@ -7,6 +7,7 @@ const { getPythonPath } = require('./find_python.js');
 
 let mainWindow;
 let isOnlineMode = true; // Add default online mode state
+let lastOrganizeUndoManifest = null;
 let tokenUsage = 0;
 let callUsage = 0;
 const TOKEN_LIMIT = 30000;
@@ -225,9 +226,55 @@ ipcMain.handle('apply-changes', async (event, fileStructure) => {
         return;
       }
 
-      resolve({ success: true, message: results.join('\n') });
+      // Parse the last line of output as JSON to extract undo_manifest
+      let undoManifest = null;
+      try {
+        const lastLine = results[results.length - 1];
+        const parsed = JSON.parse(lastLine);
+        if (parsed && parsed.undo_manifest) {
+          undoManifest = parsed.undo_manifest;
+        }
+      } catch (e) {
+        debug('Could not parse undo manifest from Python output');
+      }
+
+      lastOrganizeUndoManifest = undoManifest;
+      resolve({ success: true, message: results.join('\n'), undo_manifest: undoManifest });
     });
   });
+});
+
+// Undo last organize operation
+ipcMain.handle('undo-last-organize', async () => {
+  if (!lastOrganizeUndoManifest || lastOrganizeUndoManifest.length === 0) {
+    return { success: false, reason: 'Nothing to undo' };
+  }
+
+  let count = 0;
+  const errors = [];
+
+  for (const item of lastOrganizeUndoManifest) {
+    try {
+      // Ensure the destination directory exists before moving back
+      const destDir = path.dirname(item.to);
+      if (!fs.existsSync(destDir)) {
+        fs.mkdirSync(destDir, { recursive: true });
+      }
+      fs.renameSync(item.from, item.to);
+      count++;
+    } catch (e) {
+      debug(`Undo failed for ${item.from} -> ${item.to}: ${e.message}`);
+      errors.push({ from: item.from, to: item.to, error: e.message });
+    }
+  }
+
+  // Clear the manifest after undo (single-level undo)
+  lastOrganizeUndoManifest = null;
+
+  if (errors.length > 0) {
+    return { success: true, count, errors };
+  }
+  return { success: true, count };
 });
 
 // Check if test.json exists in the project root directory

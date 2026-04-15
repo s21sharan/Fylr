@@ -53,12 +53,19 @@ moondream_model = None
 try:
     # Only import moondream if we're going to use it
     import moondream as md
-    model_path = "/Users/sharans/Downloads/moondream-0_5b-int8.mf"
-    if os.path.exists(model_path):
-        moondream_model = md.vl(model=model_path)
-        logger.info("Moondream model initialized successfully")
-    else:
-        logger.warning(f"Moondream model file not found at: {model_path}")
+    # Try to use the default model (will download automatically on first use)
+    try:
+        moondream_model = md.vl()
+        logger.info("Moondream model initialized successfully (using default model)")
+    except Exception as e:
+        logger.warning(f"Failed to initialize Moondream with default model: {str(e)}")
+        # Fallback to checking for local model file
+        model_path = os.path.expanduser("~/Downloads/moondream-0_5b-int8.mf")
+        if os.path.exists(model_path):
+            moondream_model = md.vl(model=model_path)
+            logger.info(f"Moondream model initialized successfully from: {model_path}")
+        else:
+            logger.warning(f"Moondream model file not found at: {model_path}")
 except ImportError:
     logger.warning("Moondream package not installed. Simple image analysis will be used for offline mode.")
 except Exception as e:
