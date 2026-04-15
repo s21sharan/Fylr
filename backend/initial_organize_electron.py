@@ -631,11 +631,6 @@ def analyze_directory(directory_path, online_mode=False):
             print("📥 RECEIVED RESPONSE FROM LOCAL LLM")
             response_content = structure_response['message']['content'].strip()
         
-        print_separator()
-        print("RAW LLM RESPONSE:")
-        print(response_content)
-        print_separator()
-        
         try:
             # First try to parse the entire response as JSON
             try:
@@ -652,33 +647,20 @@ def analyze_directory(directory_path, online_mode=False):
                     logger.info("Successfully extracted and parsed JSON from response")
                 else:
                     logger.error("Response is not in JSON format")
-                    print("\nError: Response is not in JSON format. Got:")
-                    print(response_content[:500] + "..." if len(response_content) > 500 else response_content)
-                    return json.dumps({"files": []})
-            
-            print_separator()
-            print("PARSED JSON RESULT:")
-            print(json.dumps(result, indent=2))
-            print_separator()
-            
+                    return {"files": []}
+
             if "files" in result and isinstance(result["files"], list):
                 logger.info(f"Successfully generated file structure with {len(result['files'])} files")
-                print(f"\nSuccessfully generated file structure with {len(result['files'])} files")
-                return json.dumps(result, indent=2)
+                return result
             else:
                 logger.error("Invalid structure in LLM response - missing 'files' array")
-                print("\nError: Invalid structure in LLM response - missing 'files' array")
-                print("Got:", json.dumps(result, indent=2))
-                return json.dumps({"files": []})
+                return {"files": []}
         except Exception as e:
             logger.error(f"Error parsing response: {str(e)}")
-            print(f"\nError parsing response: {str(e)}")
-            print("Raw response:", response_content[:500] + "..." if len(response_content) > 500 else response_content)
-            return json.dumps({"files": []})
-    
+            return {"files": []}
+
     logger.warning("No valid file summaries found")
-    print("\nNo valid file summaries found")
-    return json.dumps({"files": []})
+    return {"files": []}
 
 if __name__ == "__main__":
     # Test logging
@@ -727,7 +709,7 @@ if __name__ == "__main__":
             # Make sure we pass online_mode explicitly
             logger.info(f"📣 Explicitly passing online_mode={online_mode} to analyze_directory")
             result = analyze_directory(directory, online_mode=online_mode)
-            print(result)
+            print(json.dumps(result))
             
     except Exception as e:
         logger.error(f"Error: {str(e)}")

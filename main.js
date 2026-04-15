@@ -2,6 +2,7 @@ const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const path = require('path');
 const { PythonShell } = require('python-shell');
 const fs = require('fs');
+const crypto = require('crypto');
 const { getPythonPath } = require('./find_python.js');
 
 let mainWindow;
@@ -115,92 +116,63 @@ ipcMain.handle('analyze-directory', async (event, directoryPath) => {
   debug(`Current online mode state: ${isOnlineMode}`);
   return new Promise((resolve, reject) => {
     // Create a temporary JSON file to pass the directory path to Python
-    const configPath = path.join(app.getPath('temp'), 'file_organizer_config.json');
+    const configPath = path.join(app.getPath('temp'), `fylr_config_${crypto.randomUUID()}.json`);
     debug(`Creating config file at: ${configPath}`);
-    
-    const configData = { 
+
+    const configData = {
       directory: directoryPath,
       online_mode: isOnlineMode  // Include online mode in config
     };
-    
+
     debug(`Config data for Python: ${JSON.stringify(configData)}`);
     fs.writeFileSync(configPath, JSON.stringify(configData));
-    
+
     // Path to Python script
     const scriptPath = path.join(__dirname, 'backend', 'initial_organize_electron.py');
     debug(`Using Python script: ${scriptPath}`);
-    
+
     // Get the path to the virtual environment's Python executable
     const pythonPath = getPythonPath();
     debug(`Using Python interpreter: ${pythonPath}`);
-    
+
     const options = {
       mode: 'text',
       pythonPath: pythonPath,
       pythonOptions: ['-u'],
       args: [configPath]
     };
-    
+
     debug('Starting Python process with options', options);
     const pythonProcess = PythonShell.run(scriptPath, options, (err, results) => {
+      try {
+        fs.unlinkSync(configPath);
+      } catch (e) {
+        // ignore cleanup errors
+      }
+
       if (err) {
         console.error('Python script error:', err);
         debug('Python execution failed with error', err);
         reject(err);
         return;
       }
-      
+
       debug(`Python script execution completed with ${results.length} lines of output`);
-      
+
       // Process results and track token usage
-      let jsonOutput = '';
-      let foundRawLLMResponse = false;
-      
       for (const line of results) {
         if (line.startsWith('TOKEN_USAGE:') && isOnlineMode) {
           // Only track tokens and calls in online mode
           const tokens = parseInt(line.split(':')[1]);
           updateTokenUsage(tokens);
           updateCallUsage();
-        } else if (foundRawLLMResponse) {
-          jsonOutput += line;
-        } else if (line.includes('RAW LLM RESPONSE:')) {
-          foundRawLLMResponse = true;
-          debug('Found LLM response marker in output');
         }
       }
-      
+
       try {
-        const jsonRegex = /{(?:[^{}]|{(?:[^{}]|{[^{}]*})*})*}/g;
-        const matches = jsonOutput.match(jsonRegex);
-        
-        if (matches && matches.length > 0) {
-          debug(`Found ${matches.length} potential JSON matches`);
-          let result = null;
-          for (const match of matches) {
-            try {
-              debug('Trying to parse JSON match', match.substring(0, 100) + '...');
-              result = JSON.parse(match);
-              if (result) {
-                debug('Successfully parsed JSON data');
-                break;
-              }
-            } catch (e) {
-              debug(`Failed to parse potential JSON match: ${e.message}`);
-            }
-          }
-          
-          if (result) {
-            debug('Returning parsed result structure', result);
-            resolve(result);
-          } else {
-            debug('No valid JSON structures found');
-            throw new Error('None of the extracted JSON structures were valid');
-          }
-        } else {
-          debug('No JSON patterns found in output');
-          throw new Error('Could not find valid JSON structure in Python output');
-        }
+        const result = JSON.parse(results[results.length - 1]);
+        debug('Returning parsed result structure', result);
+        resolve(result);
       } catch (error) {
         console.error('Error parsing Python output:', error);
         debug('Error parsing output', error);
@@ -208,7 +180,7 @@ ipcMain.handle('analyze-directory', async (event, directoryPath) => {
         reject(error);
       }
     });
-    
+
     // Handle process output
     pythonProcess.on('message', (message) => {
       if (message.startsWith('TOKEN_USAGE:') && isOnlineMode) {
@@ -225,28 +197,34 @@ ipcMain.handle('analyze-directory', async (event, directoryPath) => {
 ipcMain.handle('apply-changes', async (event, fileStructure) => {
   return new Promise((resolve, reject) => {
     // Create a temporary JSON file to pass the file structure to Python
-    const structurePath = path.join(app.getPath('temp'), 'file_structure.json');
+    const structurePath = path.join(app.getPath('temp'), `fylr_config_${crypto.randomUUID()}.json`);
     fs.writeFileSync(structurePath, JSON.stringify(fileStructure));
-    
+
     // Path to Python script
     const scriptPath = path.join(__dirname, 'backend', 'apply_changes.py');
-    
+
     // Get the path to the virtual environment's Python executable
     const pythonPath = getPythonPath();
-    
+
     const options = {
       mode: 'text',
       pythonPath: pythonPath,
       pythonOptions: ['-u'],
       args: [structurePath]
     };
-    
+
     PythonShell.run(scriptPath, options, (err, results) => {
+      try {
+        fs.unlinkSync(structurePath);
+      } catch (e) {
+        // ignore cleanup errors
+      }
+
       if (err) {
         reject(err);
         return;
       }
-      
+
       resolve({ success: true, message: results.join('\n') });
     });
   });
@@ -274,7 +252,7 @@ ipcMain.handle('read-test-json', async (event) => {
 
 ipcMain.handle('chat-query', async (event, { message, currentFileStructure }) => {
   try {
-    const configPath = path.join(app.getPath('temp'), 'chat_query_config.json');
+    const configPath = path.join(app.getPath('temp'), `fylr_config_${crypto.randomUUID()}.json`);
     const scriptPath = path.join(__dirname, 'backend', 'chat_agent_runner.py');
     const pythonPath = getPythonPath();
 
@@ -310,9 +288,15 @@ ipcMain.handle('chat-query', async (event, { message, currentFileStructure }) =>
 
     return new Promise((resolve, reject) => {
       PythonShell.run(scriptPath, options, (err, results) => {
+        try {
+          fs.unlinkSync(configPath);
+        } catch (e) {
+          // ignore cleanup errors
+        }
+
         if (err) {
           console.error('Chat agent error:', err);
-          
+
           // Provide a more helpful error message
           if (err.message && err.message.includes('OPENAI_API_KEY environment variable is required')) {
             resolve({
@@ -337,12 +321,12 @@ ipcMain.handle('chat-query', async (event, { message, currentFileStructure }) =>
               lastLine = line;
             }
           }
-          
+
           // If no content was found, use the last line
           if (!lastLine && results.length > 0) {
             lastLine = results[results.length - 1];
           }
-          
+
           const data = JSON.parse(lastLine);
           resolve(data);
         } catch (parseError) {
@@ -395,7 +379,7 @@ ipcMain.handle('get-online-mode', async (event) => {
 // Update generate-filenames handler
 ipcMain.handle('generate-filenames', async (event, { files, online_mode }) => {
   try {
-    const configPath = path.join(app.getPath('temp'), 'rename_files_config.json');
+    const configPath = path.join(app.getPath('temp'), `fylr_config_${crypto.randomUUID()}.json`);
     const scriptPath = path.join(__dirname, 'backend', 'rename_files.py');
     const pythonPath = getPythonPath();
 
@@ -436,10 +420,16 @@ ipcMain.handle('generate-filenames', async (event, { files, online_mode }) => {
     return new Promise((resolve, reject) => {
       debug('Starting Python process with options:', options);
       const pythonProcess = PythonShell.run(scriptPath, options, (err, results) => {
+        try {
+          fs.unlinkSync(configPath);
+        } catch (e) {
+          // ignore cleanup errors
+        }
+
         if (err) {
           console.error('Python script error:', err);
           debug('Python execution failed with error:', err);
-          
+
           // Provide a more helpful error message
           if (err.message && err.message.includes('ModuleNotFoundError: No module named \'moondream\'')) {
             reject(new Error('The Moondream module is not installed. Try using online mode or install the required dependencies.'));
@@ -498,7 +488,7 @@ ipcMain.handle('generate-filenames', async (event, { files, online_mode }) => {
 // Update rename-files handler
 ipcMain.handle('rename-files', async (event, filesToProcess) => {
   try {
-    const configPath = path.join(app.getPath('temp'), 'rename_files_config.json');
+    const configPath = path.join(app.getPath('temp'), `fylr_config_${crypto.randomUUID()}.json`);
     const scriptPath = path.join(__dirname, 'backend', 'rename_files.py');
     const pythonPath = getPythonPath();
 
@@ -533,6 +523,12 @@ ipcMain.handle('rename-files', async (event, filesToProcess) => {
 
     return new Promise((resolve, reject) => {
       PythonShell.run(scriptPath, options, (err, results) => {
+        try {
+          fs.unlinkSync(configPath);
+        } catch (e) {
+          // ignore cleanup errors
+        }
+
         if (err) {
           console.error('Python script error:', err);
           reject(err);
@@ -551,12 +547,12 @@ ipcMain.handle('rename-files', async (event, filesToProcess) => {
               lastLine = line;
             }
           }
-          
+
           // If no content was found in the results, use the last line
           if (!lastLine && results.length > 0) {
             lastLine = results[results.length - 1];
           }
-          
+
           const data = JSON.parse(lastLine);
           resolve(data);
         } catch (parseError) {
@@ -658,90 +654,3 @@ ipcMain.handle('update-call-usage', async (event, forceUpdate = false) => {
   return true;
 });
 
-function runPythonScript(scriptPath, args, options = {}) {
-  return new Promise((resolve, reject) => {
-    const pythonPath = getPythonPath();
-    debug('Using Python path:', pythonPath);
-
-    const defaultOptions = {
-      mode: 'text',
-      pythonPath: pythonPath,
-      pythonOptions: ['-u'],
-      scriptPath: path.dirname(scriptPath),
-      args: args
-    };
-
-    const finalOptions = { ...defaultOptions, ...options };
-    debug('Running Python script with options:', finalOptions);
-
-    const pyshell = new PythonShell(scriptPath, finalOptions);
-
-    let output = '';
-    let error = '';
-
-    pyshell.on('message', (message) => {
-      output += message + '\n';
-      debug('Python output:', message);
-    });
-
-    pyshell.on('stderr', (message) => {
-      error += message + '\n';
-      debug('Python error:', message);
-    });
-
-    pyshell.on('error', (err) => {
-      debug('Python shell error:', err);
-      reject(err);
-    });
-
-    pyshell.end((err) => {
-      if (err) {
-        debug('Python script ended with error:', err);
-        reject(err);
-      } else {
-        debug('Python script completed successfully');
-        resolve({ output, error });
-      }
-    });
-  });
-}
-
-// Handle file organization
-ipcMain.handle('organize-files', async (event, { directory, onlineMode }) => {
-  try {
-    // Check if we've reached limits
-    if (onlineMode && (tokenUsage >= TOKEN_LIMIT || callUsage >= CALL_LIMIT)) {
-      debug('Limits reached, forcing offline mode');
-      onlineMode = false;
-    }
-
-    const config = {
-      directory: directory,
-      online_mode: onlineMode
-    };
-
-    const configPath = path.join(app.getPath('temp'), 'config.json');
-    fs.writeFileSync(configPath, JSON.stringify(config));
-
-    const scriptPath = path.join(__dirname, 'backend', 'initial_organize_electron.py');
-    const result = await runPythonScript(scriptPath, [configPath]);
-
-    return {
-      success: true,
-      output: result.output,
-      error: result.error,
-      tokenUsage,
-      callUsage,
-      isOnlineMode
-    };
-  } catch (error) {
-    debug('Error organizing files:', error);
-    return {
-      success: false,
-      error: error.message,
-      tokenUsage,
-      callUsage,
-      isOnlineMode
-    };
-  }
-});
