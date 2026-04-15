@@ -94,6 +94,23 @@ ipcRenderer.on('update-call-usage', (event, usage) => {
   }
 });
 
+// Listen for real-time analysis progress updates
+ipcRenderer.on('analysis-progress', (event, data) => {
+  const progressBar = document.getElementById('analysisProgress');
+  const progressText = document.getElementById('analysisProgressText');
+  if (progressBar && progressText) {
+    progressBar.style.display = 'block';
+    const pct = Math.round((data.done / data.total) * 100);
+    progressBar.value = pct;
+    progressBar.max = 100;
+    if (data.file === 'all') {
+      progressText.textContent = 'All files summarized. Categorizing...';
+    } else {
+      progressText.textContent = `Analyzing file ${data.done} of ${data.total}: ${data.file}`;
+    }
+  }
+});
+
 // Function to update limits box visibility
 function updateLimitsBoxVisibility() {
   if (modeToggle.checked) {
@@ -150,9 +167,14 @@ analyzeBtn.addEventListener('click', async () => {
   
   analyzeBtn.disabled = true;
   loader.style.display = 'flex';
+  // Reset progress indicators
+  const progressBar = document.getElementById('analysisProgress');
+  const progressText = document.getElementById('analysisProgressText');
+  if (progressBar) { progressBar.value = 0; progressBar.style.display = 'none'; }
+  if (progressText) { progressText.textContent = ''; }
   resultsContainer.style.display = 'none';
   showMessage('Analyzing files and generating structure...', 'info');
-  
+
   try {
     const result = await ipcRenderer.invoke('analyze-directory', directoryInput.value.trim());
     console.log('Result from analyze-directory:', result);
@@ -790,11 +812,15 @@ async function validateAndAnalyzeDirectory(path) {
     const currentMode = await getCurrentMode();
     console.log(`Starting analysis with mode: ${currentMode ? 'ONLINE' : 'OFFLINE'}`);
     
-    // Show loader
+    // Show loader and reset progress indicators
     loader.style.display = 'flex';
+    const progressBar2 = document.getElementById('analysisProgress');
+    const progressText2 = document.getElementById('analysisProgressText');
+    if (progressBar2) { progressBar2.value = 0; progressBar2.style.display = 'none'; }
+    if (progressText2) { progressText2.textContent = ''; }
     resultsContainer.style.display = 'none';
     messageContainer.innerHTML = '';
-    
+
     debugLog(`Starting analysis for directory: ${path}`);
     debugLog(`Current mode: ${currentMode ? 'ONLINE' : 'OFFLINE'}`);
     

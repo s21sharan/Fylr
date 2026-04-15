@@ -146,7 +146,42 @@ ipcMain.handle('analyze-directory', async (event, directoryPath) => {
     };
 
     debug('Starting Python process with options', options);
-    const pythonProcess = PythonShell.run(scriptPath, options, (err, results) => {
+
+    // Use event-based mode for real-time progress streaming
+    const pythonProcess = new PythonShell(scriptPath, options);
+    let lastMessage = '';
+
+    pythonProcess.on('message', (message) => {
+      if (message.startsWith('PROGRESS:')) {
+        try {
+          const payload = JSON.parse(message.substring('PROGRESS:'.length));
+          debug('Progress update:', payload);
+          if (mainWindow) {
+            mainWindow.webContents.send('analysis-progress', payload);
+          }
+        } catch (e) {
+          debug('Error parsing progress message:', e.message);
+        }
+      } else if (message.startsWith('TOKEN_USAGE:') && isOnlineMode) {
+        const tokens = parseInt(message.split(':')[1]);
+        updateTokenUsage(tokens);
+      } else if (message.startsWith('CALL_USAGE:') && isOnlineMode) {
+        const calls = parseInt(message.split(':')[1]);
+        // Call usage is reported directly from Python; just forward to renderer
+        callUsage = calls;
+        if (mainWindow) {
+          mainWindow.webContents.send('update-call-usage', callUsage);
+        }
+      }
+      // Always track the last message for final JSON parsing
+      lastMessage = message;
+    });
+
+    pythonProcess.on('error', (err) => {
+      debug('Python process error:', err);
+    });
+
+    pythonProcess.end((err, exitCode, exitSignal) => {
       try {
         fs.unlinkSync(configPath);
       } catch (e) {
@@ -160,37 +195,17 @@ ipcMain.handle('analyze-directory', async (event, directoryPath) => {
         return;
       }
 
-      debug(`Python script execution completed with ${results.length} lines of output`);
-
-      // Process results and track token usage
-      for (const line of results) {
-        if (line.startsWith('TOKEN_USAGE:') && isOnlineMode) {
-          // Only track tokens and calls in online mode
-          const tokens = parseInt(line.split(':')[1]);
-          updateTokenUsage(tokens);
-          updateCallUsage();
-        }
-      }
+      debug('Python script execution completed');
 
       try {
-        const result = JSON.parse(results[results.length - 1]);
+        const result = JSON.parse(lastMessage);
         debug('Returning parsed result structure', result);
         resolve(result);
       } catch (error) {
         console.error('Error parsing Python output:', error);
         debug('Error parsing output', error);
-        debug('Raw output:', results.join('\n'));
+        debug('Last message:', lastMessage);
         reject(error);
-      }
-    });
-
-    // Handle process output
-    pythonProcess.on('message', (message) => {
-      if (message.startsWith('TOKEN_USAGE:') && isOnlineMode) {
-        // Only track tokens and calls in online mode
-        const tokens = parseInt(message.split(':')[1]);
-        updateTokenUsage(tokens);
-        updateCallUsage();
       }
     });
   });

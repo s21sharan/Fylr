@@ -1,6 +1,7 @@
 import os
 import sys
 import json
+import threading
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 import PyPDF2
@@ -544,10 +545,17 @@ def analyze_directory(directory_path, online_mode=False):
 
     print("GENERATING FILE SUMMARIES:")
     max_workers = 5 if online_mode else 3
+    total = len(files_to_process)
+    progress_lock = threading.Lock()
+    progress_counter = [0]  # mutable container for closure
 
     def summarize_file(file_path):
         print(f"\nAnalyzing: {file_path}")
         summary = get_file_summary(file_path, online_mode=online_mode)
+        with progress_lock:
+            progress_counter[0] += 1
+            done = progress_counter[0]
+        print(f"PROGRESS:{json.dumps({'file': os.path.basename(file_path), 'done': done, 'total': total})}", flush=True)
         if summary:
             print(f"Summary: {summary}")
             return {"file_path": file_path, "summary": summary}
@@ -557,6 +565,9 @@ def analyze_directory(directory_path, online_mode=False):
         results = executor.map(summarize_file, files_to_process)
 
     file_summaries = [r for r in results if r is not None]
+
+    # Signal that all file summaries are complete
+    print(f"PROGRESS:{json.dumps({'file': 'all', 'done': total, 'total': total})}", flush=True)
     
     if file_summaries:
         formatted_input = []
