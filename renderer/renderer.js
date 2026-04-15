@@ -1,6 +1,5 @@
 const { ipcRenderer } = require('electron');
 const path = require('path');
-const fs = require('fs');
 
 // DOM Elements
 const directoryInput = document.getElementById('directoryPath');
@@ -961,18 +960,6 @@ generateNamesBtn.addEventListener('click', async () => {
       
       showMessage('New filenames generated successfully!', 'success');
       
-      // Force add click handler to ensure button works
-      setTimeout(() => {
-        const btn = document.getElementById('renameApplyBtn');
-        if (btn) {
-          btn.disabled = false;
-          console.log('Force-enabled rename button after delay');
-          btn.addEventListener('click', (e) => {
-            console.log('CLICK FROM DELAYED HANDLER');
-            performRename();
-          });
-        }
-      }, 500);
     } else {
       showMessage(`Error: ${result.error}`, 'error');
     }
@@ -1145,58 +1132,8 @@ function updateRenameButtons() {
     renameBtn.disabled = !hasChanges;
     console.log('Set renameApplyBtn.disabled =', !hasChanges);
     
-    // Add a direct click handler to ensure it works
-    if (!renameBtn._hasClickListener) {
-      renameBtn.addEventListener('click', function(e) {
-        console.log('CLICK FROM updateRenameButtons');
-        if (!renameBtn.disabled) {
-          performRename();
-        }
-      });
-      renameBtn._hasClickListener = true;
-      console.log('Added click listener in updateRenameButtons');
-    }
   }
 }
-
-// Add a console log to debug renameApplyBtn
-console.log('Rename button element:', renameApplyBtn);
-
-// Add a direct check for the button and add click event listener again
-document.addEventListener('DOMContentLoaded', function() {
-  console.log('DOMContentLoaded event fired');
-  
-  // Debug button elements
-  const allButtons = document.querySelectorAll('button');
-  console.log('Found buttons on page:', allButtons.length);
-  allButtons.forEach(btn => {
-    console.log('Button:', btn.id, btn.textContent);
-  });
-  
-  // Check for renameApplyBtn specifically
-  const btnCheck = document.getElementById('renameApplyBtn');
-  console.log('renameApplyBtn element:', btnCheck);
-  
-  if (btnCheck) {
-    console.log('Adding click listener to renameApplyBtn');
-    btnCheck.addEventListener('click', function() {
-      console.log('DIRECT CLICK HANDLER TRIGGERED');
-      if (renameApplyBtn.disabled) {
-        console.log('Button is disabled, not proceeding');
-        return;
-      }
-      console.log('Proceeding with rename');
-      
-      // Simple immediate visual feedback
-      showMessage('Processing rename...', 'info');
-      
-      // Call the actual rename function
-      performRename();
-    });
-  } else {
-    console.error('renameApplyBtn not found in the DOM!');
-  }
-});
 
 // Function to update button state
 function updateButtonState(button, state) {
@@ -1294,92 +1231,37 @@ async function performRename() {
       return;
     }
 
-    // Use direct file system rename instead of IPC call
-    const results = [];
-    const errors = [];
+    // Route rename through IPC to the main process
+    const result = await ipcRenderer.invoke('rename-files', filesToProcess);
+    console.log('Rename IPC result:', result);
 
-    for (const file of filesToProcess) {
-      try {
-        const directory = path.dirname(file.oldPath);
-        const filename = path.basename(file.oldPath);
-        const newPath = path.join(directory, file.newName);
-        
-        console.log(`Renaming: ${file.oldPath} -> ${newPath}`);
-        
-        // Check if destination already exists
-        if (fs.existsSync(newPath)) {
-          console.warn(`File already exists: ${newPath}`);
-          // Add a counter to make the filename unique
-          let counter = 1;
-          let newNameWithCounter = file.newName;
-          const ext = path.extname(file.newName);
-          const baseName = path.basename(file.newName, ext);
-          
-          while (fs.existsSync(path.join(directory, newNameWithCounter))) {
-            newNameWithCounter = `${baseName}_${counter}${ext}`;
-            counter++;
-          }
-          
-          const uniquePath = path.join(directory, newNameWithCounter);
-          console.log(`Using unique name instead: ${uniquePath}`);
-          
-          // Rename the file
-          fs.renameSync(file.oldPath, uniquePath);
-          results.push({
-            original: filename,
-            new: newNameWithCounter,
-            uniquePathUsed: true
-          });
-        } else {
-          // Rename the file
-          fs.renameSync(file.oldPath, newPath);
-          results.push({
-            original: filename,
-            new: file.newName
-          });
-        }
-      } catch (err) {
-        console.error(`Error renaming ${file.oldPath}:`, err);
-        errors.push({
-          file: file.oldPath,
-          error: err.message
-        });
-      }
-    }
+    if (result && result.success) {
+      debugLog('Files renamed successfully via IPC', result);
+      showMessage(`Successfully renamed ${filesToProcess.length} files!`, 'success');
 
-    // Display results
-    if (errors.length === 0) {
-      debugLog('Files renamed successfully', results);
-      showMessage(`Successfully renamed ${results.length} files!`, 'success');
-      
       // Set success state on button
       if (renameBtn) {
         updateButtonState(renameBtn, 'success');
-        
+
         // Reset to default state after 2 seconds
         setTimeout(() => {
           updateButtonState(renameBtn, 'default');
         }, 2000);
       }
-      
+
       // Clear the generated names since they've been applied
       generatedNames = {};
-      
+
       // Reload the file list for the current directory
-      if (results.length > 0 && filesToProcess.length > 0) {
+      if (filesToProcess.length > 0) {
         const dirPath = path.dirname(filesToProcess[0].oldPath);
         await loadFilesForRenaming(dirPath);
       }
-    } else if (results.length > 0) {
-      debugLog('Some files renamed with errors', { results, errors });
-      showMessage(`Renamed ${results.length} files with ${errors.length} errors.`, 'warning');
-      
-      // Reset button state
-      if (renameBtn) updateButtonState(renameBtn, 'default');
     } else {
-      debugLog('Failed to rename files', errors);
-      showMessage(`Failed to rename files: ${errors[0].error}`, 'error');
-      
+      const errorMsg = (result && result.error) ? result.error : 'Unknown error during rename';
+      debugLog('Failed to rename files via IPC', result);
+      showMessage(`Failed to rename files: ${errorMsg}`, 'error');
+
       // Reset button state
       if (renameBtn) updateButtonState(renameBtn, 'default');
     }
@@ -1449,43 +1331,8 @@ document.addEventListener('DOMContentLoaded', async function() {
   modeToggle.checked = currentMode;
 });
 
-// Add this at the end of the file to ensure it runs after everything else
-setTimeout(() => {
-  console.log('Delayed check for renameApplyBtn');
-  const renameBtn = document.querySelector('button#renameApplyBtn');
-  console.log('Found renameApplyBtn via querySelector:', renameBtn);
-  
-  if (renameBtn) {
-    console.log('Adding direct click handler');
-    // Remove any existing listeners to avoid duplicates
-    renameBtn.replaceWith(renameBtn.cloneNode(true));
-    
-    // Get the fresh reference to the button after clone
-    const freshRenameBtn = document.querySelector('button#renameApplyBtn');
-    
-    // Add direct event listener
-    freshRenameBtn.addEventListener('click', (event) => {
-      console.log('DIRECT CLICK ON RENAME BUTTON');
-      event.preventDefault();
-      event.stopPropagation();
-      
-      if (!freshRenameBtn.disabled) {
-        showMessage('Initiating rename process...', 'info');
-        performRename();
-      } else {
-        console.log('Button is disabled, not proceeding');
-      }
-    });
-    
-    // Force-enable the button if there are generated names
-    if (generatedNames && Object.keys(generatedNames).length > 0) {
-      freshRenameBtn.disabled = false;
-      console.log('Force-enabled the rename button');
-    }
-  } else {
-    console.error('Could not find renameApplyBtn even with querySelector!');
-  }
-}, 1000); // 1 second delay to ensure DOM is fully loaded
+// Register the single click handler for the rename button
+renameApplyBtn.addEventListener('click', performRename);
 
 const TOKEN_LIMIT = 30000;
 const CALL_LIMIT = 10;
