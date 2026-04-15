@@ -27,6 +27,10 @@ const generateNamesBtn = document.getElementById('generateNamesBtn');
 const renamePreview = document.getElementById('renamePreview');
 const renameApplyBtn = document.getElementById('renameApplyBtn');
 
+// Undo button DOM elements
+const undoOrganizeBtn = document.getElementById('undoOrganizeBtn');
+const undoRenameBtn = document.getElementById('undoRenameBtn');
+
 // Store file structure data
 let fileStructureData = null;
 
@@ -42,6 +46,7 @@ let currentStructure = { files: [] };
 let filesToRename = [];
 let generatedNames = {};
 let selectedFiles = new Set();
+let lastRenameUndoManifest = [];
 
 // Create modal for adding directories
 const modal = document.createElement('div');
@@ -228,6 +233,10 @@ applyBtn.addEventListener('click', async () => {
     
     if (result.success) {
       showMessage('File structure reorganization completed successfully!', 'success');
+      // Enable undo button if there is an undo manifest
+      if (result.undo_manifest && result.undo_manifest.length > 0 && undoOrganizeBtn) {
+        undoOrganizeBtn.disabled = false;
+      }
     } else {
       showMessage(`Error applying changes: ${result.message}`, 'error');
     }
@@ -237,6 +246,64 @@ applyBtn.addEventListener('click', async () => {
     showMessage(`Error applying changes: ${error.message}`, 'error');
   }
 });
+
+// Undo last organize operation
+if (undoOrganizeBtn) {
+  undoOrganizeBtn.addEventListener('click', async () => {
+    undoOrganizeBtn.disabled = true;
+    try {
+      const result = await ipcRenderer.invoke('undo-last-organize');
+      if (result.success) {
+        showMessage(`Undo successful: ${result.count} file(s) restored to original location.`, 'success');
+      } else {
+        showMessage(`Undo failed: ${result.reason}`, 'error');
+      }
+    } catch (error) {
+      showMessage(`Undo error: ${error.message}`, 'error');
+    }
+  });
+}
+
+// Undo last rename operation
+if (undoRenameBtn) {
+  undoRenameBtn.addEventListener('click', async () => {
+    undoRenameBtn.disabled = true;
+
+    if (!lastRenameUndoManifest || lastRenameUndoManifest.length === 0) {
+      showMessage('Nothing to undo.', 'error');
+      return;
+    }
+
+    let count = 0;
+    const errors = [];
+
+    for (const item of lastRenameUndoManifest) {
+      try {
+        fs.renameSync(item.from, item.to);
+        count++;
+      } catch (err) {
+        console.error(`Undo rename failed for ${item.from} -> ${item.to}:`, err);
+        errors.push({ from: item.from, to: item.to, error: err.message });
+      }
+    }
+
+    // Determine the directory for reload before clearing the manifest
+    const reloadDir = renameDirectoryInput.value;
+
+    // Clear the manifest (single-level undo)
+    lastRenameUndoManifest = [];
+
+    if (errors.length === 0) {
+      showMessage(`Undo rename successful: ${count} file(s) restored.`, 'success');
+      // Reload the file list
+      if (reloadDir) {
+        await loadFilesForRenaming(reloadDir);
+      }
+    } else {
+      showMessage(`Undo rename partially completed: ${count} restored, ${errors.length} failed.`, 'warning');
+    }
+  });
+}
 
 // Build file tree visualization with drag-and-drop support
 function buildFileTree(data) {
@@ -1297,15 +1364,16 @@ async function performRename() {
     // Use direct file system rename instead of IPC call
     const results = [];
     const errors = [];
+    lastRenameUndoManifest = [];
 
     for (const file of filesToProcess) {
       try {
         const directory = path.dirname(file.oldPath);
         const filename = path.basename(file.oldPath);
         const newPath = path.join(directory, file.newName);
-        
+
         console.log(`Renaming: ${file.oldPath} -> ${newPath}`);
-        
+
         // Check if destination already exists
         if (fs.existsSync(newPath)) {
           console.warn(`File already exists: ${newPath}`);
@@ -1314,17 +1382,19 @@ async function performRename() {
           let newNameWithCounter = file.newName;
           const ext = path.extname(file.newName);
           const baseName = path.basename(file.newName, ext);
-          
+
           while (fs.existsSync(path.join(directory, newNameWithCounter))) {
             newNameWithCounter = `${baseName}_${counter}${ext}`;
             counter++;
           }
-          
+
           const uniquePath = path.join(directory, newNameWithCounter);
           console.log(`Using unique name instead: ${uniquePath}`);
-          
+
           // Rename the file
           fs.renameSync(file.oldPath, uniquePath);
+          // Record reverse operation for undo
+          lastRenameUndoManifest.push({ from: uniquePath, to: file.oldPath });
           results.push({
             original: filename,
             new: newNameWithCounter,
@@ -1333,6 +1403,8 @@ async function performRename() {
         } else {
           // Rename the file
           fs.renameSync(file.oldPath, newPath);
+          // Record reverse operation for undo
+          lastRenameUndoManifest.push({ from: newPath, to: file.oldPath });
           results.push({
             original: filename,
             new: file.newName
@@ -1351,20 +1423,25 @@ async function performRename() {
     if (errors.length === 0) {
       debugLog('Files renamed successfully', results);
       showMessage(`Successfully renamed ${results.length} files!`, 'success');
-      
+
       // Set success state on button
       if (renameBtn) {
         updateButtonState(renameBtn, 'success');
-        
+
         // Reset to default state after 2 seconds
         setTimeout(() => {
           updateButtonState(renameBtn, 'default');
         }, 2000);
       }
-      
+
+      // Enable undo rename button
+      if (undoRenameBtn && lastRenameUndoManifest.length > 0) {
+        undoRenameBtn.disabled = false;
+      }
+
       // Clear the generated names since they've been applied
       generatedNames = {};
-      
+
       // Reload the file list for the current directory
       if (results.length > 0 && filesToProcess.length > 0) {
         const dirPath = path.dirname(filesToProcess[0].oldPath);
