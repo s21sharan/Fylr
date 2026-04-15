@@ -68,3 +68,4 @@ desktop.ini
 file_organizer_config.json
 file_structure.json
 *.log
+.claude/worktrees/
