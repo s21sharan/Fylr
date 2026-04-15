@@ -210,7 +210,35 @@
 
       <div class="tab-content" id="agentic-search">
         <h2>Agentic Search</h2>
-        <p>Intelligent file search coming soon...</p>
+
+        <!-- Indexing controls -->
+        <div class="directory-input">
+          <input
+            type="text"
+            id="searchDirectoryPath"
+            placeholder="Type or browse for directory to index..."
+            spellcheck="false"
+          >
+          <button id="searchBrowseBtn" class="browse-btn">Browse</button>
+        </div>
+        <div style="margin-top:8px; display:flex; align-items:center; gap:12px;">
+          <button id="indexFilesBtn" class="primary-btn" disabled>Index Files</button>
+          <span id="indexStatus"></span>
+        </div>
+
+        <!-- Search controls -->
+        <div style="margin-top:16px;" class="directory-input">
+          <input
+            type="text"
+            id="searchQueryInput"
+            placeholder="Search your indexed files..."
+            spellcheck="false"
+          >
+          <button id="searchQueryBtn" class="primary-btn" disabled>Search</button>
+        </div>
+
+        <!-- Results -->
+        <div id="searchResults" style="margin-top:16px;"></div>
       </div>
       
       <div id="messageContainer" class="message-container"></div>

@@ -567,6 +567,99 @@ ipcMain.handle('rename-files', async (event, filesToProcess) => {
   }
 });
 
+// ── Semantic Search: index files ──────────────────────────────────────────────
+ipcMain.handle('search-index', async (event, { directory }) => {
+  try {
+    const configPath = path.join(app.getPath('temp'), `fylr_config_${crypto.randomUUID()}.json`);
+    const scriptPath = path.join(__dirname, 'backend', 'search_runner.py');
+    const pythonPath = getPythonPath();
+    const indexPath = path.join(app.getPath('userData'), 'fylr_search_index');
+
+    fs.writeFileSync(configPath, JSON.stringify({
+      action: 'index',
+      directory: directory,
+      index_path: indexPath
+    }));
+
+    const options = {
+      mode: 'text',
+      pythonPath: pythonPath,
+      pythonOptions: ['-u'],
+      args: [configPath]
+    };
+
+    return new Promise((resolve, reject) => {
+      PythonShell.run(scriptPath, options, (err, results) => {
+        try { fs.unlinkSync(configPath); } catch (e) { /* ignore */ }
+
+        if (err) {
+          console.error('search-index error:', err);
+          reject(err);
+          return;
+        }
+
+        try {
+          const data = JSON.parse(results[results.length - 1]);
+          resolve(data);
+        } catch (parseError) {
+          console.error('Failed to parse search-index output:', parseError);
+          reject(parseError);
+        }
+      });
+    });
+  } catch (error) {
+    console.error('Error in search-index handler:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+// ── Semantic Search: query index ─────────────────────────────────────────────
+ipcMain.handle('search-query', async (event, { query, k }) => {
+  try {
+    const configPath = path.join(app.getPath('temp'), `fylr_config_${crypto.randomUUID()}.json`);
+    const scriptPath = path.join(__dirname, 'backend', 'search_runner.py');
+    const pythonPath = getPythonPath();
+    const indexPath = path.join(app.getPath('userData'), 'fylr_search_index');
+
+    fs.writeFileSync(configPath, JSON.stringify({
+      action: 'search',
+      query: query,
+      k: k || 5,
+      index_path: indexPath
+    }));
+
+    const options = {
+      mode: 'text',
+      pythonPath: pythonPath,
+      pythonOptions: ['-u'],
+      args: [configPath]
+    };
+
+    return new Promise((resolve, reject) => {
+      PythonShell.run(scriptPath, options, (err, results) => {
+        try { fs.unlinkSync(configPath); } catch (e) { /* ignore */ }
+
+        if (err) {
+          console.error('search-query error:', err);
+          reject(err);
+          return;
+        }
+
+        try {
+          const data = JSON.parse(results[results.length - 1]);
+          resolve(data);
+        } catch (parseError) {
+          console.error('Failed to parse search-query output:', parseError);
+          reject(parseError);
+        }
+      });
+    });
+  } catch (error) {
+    console.error('Error in search-query handler:', error);
+    return { success: false, error: error.message };
+  }
+});
+
 function generateNewFileName(originalName, pattern) {
   if (!pattern) return originalName;
   
