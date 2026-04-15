@@ -1,12 +1,14 @@
 const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const path = require('path');
 const { PythonShell } = require('python-shell');
+const { spawn } = require('child_process');
 const fs = require('fs');
 const crypto = require('crypto');
 const { getPythonPath } = require('./find_python.js');
 
 let mainWindow;
 let isOnlineMode = true; // Add default online mode state
+let liveWatcherProcess = null;
 let tokenUsage = 0;
 let callUsage = 0;
 const TOKEN_LIMIT = 30000;
@@ -564,6 +566,85 @@ ipcMain.handle('rename-files', async (event, filesToProcess) => {
   } catch (error) {
     console.error('Error in rename-files handler:', error);
     return { success: false, error: error.message };
+  }
+});
+
+// Live watcher IPC handlers
+ipcMain.handle('start-live-watch', async (event, { directory, online_mode }) => {
+  debug(`Starting live watcher for: ${directory}, online_mode: ${online_mode}`);
+
+  // Kill existing process if any
+  if (liveWatcherProcess) {
+    liveWatcherProcess.kill();
+    liveWatcherProcess = null;
+  }
+
+  const scriptPath = path.join(__dirname, 'backend', 'live_watcher.py');
+  const pythonPath = getPythonPath();
+  const configJson = JSON.stringify({ directory, online_mode });
+
+  liveWatcherProcess = spawn(pythonPath, ['-u', scriptPath, configJson], {
+    stdio: ['pipe', 'pipe', 'pipe']
+  });
+
+  let lineBuffer = '';
+
+  liveWatcherProcess.stdout.on('data', (data) => {
+    lineBuffer += data.toString();
+    const lines = lineBuffer.split('\n');
+    // Keep the last incomplete line in the buffer
+    lineBuffer = lines.pop();
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (trimmed.startsWith('SUGGESTION:')) {
+        try {
+          const jsonStr = trimmed.substring('SUGGESTION:'.length);
+          const payload = JSON.parse(jsonStr);
+          debug('Live suggestion received:', payload);
+          if (mainWindow) {
+            mainWindow.webContents.send('live-suggestion', payload);
+          }
+        } catch (e) {
+          debug('Error parsing live suggestion:', e.message);
+        }
+      } else if (trimmed.startsWith('STATUS:')) {
+        debug('Live watcher status:', trimmed);
+      } else if (trimmed.startsWith('ERROR:')) {
+        debug('Live watcher error:', trimmed);
+      }
+    }
+  });
+
+  liveWatcherProcess.stderr.on('data', (data) => {
+    debug('Live watcher stderr:', data.toString());
+  });
+
+  liveWatcherProcess.on('close', (code) => {
+    debug(`Live watcher process exited with code ${code}`);
+    liveWatcherProcess = null;
+    if (mainWindow) {
+      mainWindow.webContents.send('live-watcher-stopped');
+    }
+  });
+
+  return { success: true };
+});
+
+ipcMain.handle('stop-live-watch', async () => {
+  debug('Stopping live watcher');
+  if (liveWatcherProcess) {
+    liveWatcherProcess.kill();
+    liveWatcherProcess = null;
+  }
+  return { success: true };
+});
+
+// Clean up live watcher on app quit
+app.on('before-quit', () => {
+  if (liveWatcherProcess) {
+    liveWatcherProcess.kill();
+    liveWatcherProcess = null;
   }
 });
 
