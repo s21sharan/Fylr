@@ -826,28 +826,32 @@ chatInput.addEventListener('keypress', (e) => {
 async function sendChatMessage() {
   const message = chatInput.value.trim();
   if (!message) return;
-  
+
+  // Disable send button and input while awaiting response
+  chatSendBtn.disabled = true;
+  chatInput.disabled = true;
+
   // Add user message to chat
   addMessageToChat(message, 'user');
   chatInput.value = '';
-  
+
   // Show thinking indicator
   const thinkingId = addThinkingIndicator();
-  
+
   try {
     // Send to backend and get response
     const response = await ipcRenderer.invoke('chat-query', {
       message: message,
       currentFileStructure: currentStructure
     });
-    
+
     // Remove thinking indicator
     removeThinkingIndicator(thinkingId);
-    
+
     // Add assistant response
     console.log("[DEBUG] Response from chat-query:", response);
     addMessageToChat(response.message, 'assistant');
-    
+
     // Update file structure if needed
     if (response.updatedFileStructure) {
       currentStructure = response.updatedFileStructure;
@@ -857,10 +861,15 @@ async function sendChatMessage() {
   } catch (error) {
     // Remove thinking indicator
     removeThinkingIndicator(thinkingId);
-    
+
     // Show error message
     addMessageToChat('Sorry, I encountered an error processing your request. Please try again.', 'assistant');
     console.error('Chat error:', error);
+  } finally {
+    // Re-enable send button and input
+    chatSendBtn.disabled = false;
+    chatInput.disabled = false;
+    chatInput.focus();
   }
 }
 
