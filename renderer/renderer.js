@@ -1,4 +1,4 @@
-const { ipcRenderer } = require('electron');
+const { ipcRenderer, shell } = require('electron');
 const path = require('path');
 
 // DOM Elements
@@ -1413,3 +1413,105 @@ renameApplyBtn.addEventListener('click', performRename);
 
 const TOKEN_LIMIT = 30000;
 const CALL_LIMIT = 10;
+
+// ── Agentic Search wiring ────────────────────────────────────────────────────
+const searchDirInput   = document.getElementById('searchDirectoryPath');
+const searchBrowseBtn  = document.getElementById('searchBrowseBtn');
+const indexFilesBtn    = document.getElementById('indexFilesBtn');
+const indexStatus      = document.getElementById('indexStatus');
+const searchQueryInput = document.getElementById('searchQueryInput');
+const searchQueryBtn   = document.getElementById('searchQueryBtn');
+const searchResults    = document.getElementById('searchResults');
+
+// Enable Index button when a directory is entered
+searchDirInput.addEventListener('input', () => {
+  indexFilesBtn.disabled = !searchDirInput.value.trim();
+});
+
+// Browse for directory
+searchBrowseBtn.addEventListener('click', async () => {
+  const dir = await ipcRenderer.invoke('select-directory');
+  if (dir) {
+    searchDirInput.value = dir;
+    indexFilesBtn.disabled = false;
+  }
+});
+
+// Index files
+indexFilesBtn.addEventListener('click', async () => {
+  const directory = searchDirInput.value.trim();
+  if (!directory) return;
+
+  indexFilesBtn.disabled = true;
+  indexStatus.textContent = 'Indexing...';
+
+  try {
+    const result = await ipcRenderer.invoke('search-index', { directory });
+    if (result.success) {
+      indexStatus.textContent = `Indexed ${result.indexed} file(s).`;
+      searchQueryBtn.disabled = false;
+    } else {
+      indexStatus.textContent = `Error: ${result.error || 'Unknown error'}`;
+    }
+  } catch (err) {
+    indexStatus.textContent = `Error: ${err.message}`;
+  } finally {
+    indexFilesBtn.disabled = false;
+  }
+});
+
+// Enable search button when query is entered
+searchQueryInput.addEventListener('input', () => {
+  searchQueryBtn.disabled = !searchQueryInput.value.trim();
+});
+
+// Execute search on Enter key
+searchQueryInput.addEventListener('keypress', (event) => {
+  if (event.key === 'Enter' && searchQueryInput.value.trim()) {
+    searchQueryBtn.click();
+  }
+});
+
+// Search query
+searchQueryBtn.addEventListener('click', async () => {
+  const query = searchQueryInput.value.trim();
+  if (!query) return;
+
+  searchQueryBtn.disabled = true;
+  searchResults.innerHTML = '<p>Searching...</p>';
+
+  try {
+    const result = await ipcRenderer.invoke('search-query', { query });
+    if (result.success && result.results.length > 0) {
+      searchResults.innerHTML = '';
+      result.results.forEach(item => {
+        const row = document.createElement('div');
+        row.style.cssText = 'padding:6px 8px; margin-bottom:4px; border-radius:6px; background:#f5f5f5; display:flex; justify-content:space-between; align-items:center; cursor:pointer;';
+        row.title = 'Click to reveal in file manager';
+
+        const filePath = document.createElement('span');
+        filePath.textContent = item.file_path;
+        filePath.style.cssText = 'overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1;';
+
+        const score = document.createElement('span');
+        score.textContent = `Score: ${item.score}`;
+        score.style.cssText = 'margin-left:12px; color:#888; flex-shrink:0;';
+
+        row.appendChild(filePath);
+        row.appendChild(score);
+        row.addEventListener('click', () => {
+          shell.showItemInFolder(item.file_path);
+        });
+        searchResults.appendChild(row);
+      });
+    } else if (result.success) {
+      searchResults.innerHTML = '<p>No results found.</p>';
+    } else {
+      searchResults.innerHTML = `<p>Error: ${result.error || 'Unknown error'}</p>`;
+    }
+  } catch (err) {
+    searchResults.innerHTML = `<p>Error: ${err.message}</p>`;
+  } finally {
+    searchQueryBtn.disabled = false;
+  }
+});
