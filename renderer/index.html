@@ -9,14 +9,14 @@
       margin: 0;
       padding: 0;
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
-      -webkit-app-region: drag; /* Make the entire window draggable */
-      background-color: #7c4dff;
+      -webkit-app-region: drag;
+      background-color: #e8e2db;
     }
 
     .window-controls {
       position: fixed;
-      top: 8px;
-      left: 8px;
+      top: 10px;
+      left: 10px;
       display: flex;
       gap: 8px;
       z-index: 1000;
@@ -30,53 +30,59 @@
       padding: 0;
       cursor: pointer;
       -webkit-app-region: no-drag;
+      transition: opacity 0.15s;
+    }
+
+    .window-button:hover {
+      opacity: 0.8;
     }
 
     #close-button {
-      background-color: #ff5f57;
+      background-color: #e05544;
     }
 
     #minimize-button {
-      background-color: #febc2e;
+      background-color: #dea123;
     }
 
     #maximize-button {
-      background-color: #28c840;
+      background-color: #46a758;
     }
 
     #close-button:hover {
-      background-color: #ff4444;
+      background-color: #d04030;
     }
 
     #minimize-button:hover {
-      background-color: #e6aa29;
+      background-color: #cc931c;
     }
 
     #maximize-button:hover {
-      background-color: #24b33a;
+      background-color: #3a9148;
     }
 
     .content {
-      margin: 32px 16px 16px 16px;  /* Increased top margin */
+      margin: 36px 16px 16px 16px;
     }
 
     .container {
-      background-color: white;
-      border-radius: 16px;
-      padding: 24px;
-      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-      margin-top: 8px;  /* Additional spacing from top */
+      background-color: #faf8f6;
+      border-radius: 8px;
+      padding: 28px 32px 32px;
+      border: 1px solid #e4ddd6;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+      margin-top: 4px;
     }
 
-    /* Adjust header section spacing */
     .header-section {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      margin-bottom: 24px;
+      margin-bottom: 28px;
+      padding-bottom: 20px;
+      border-bottom: 1px solid #e4ddd6;
     }
 
-    /* Make sure the h1 doesn't push content up */
     .header-section h1 {
       margin-top: 0;
     }
