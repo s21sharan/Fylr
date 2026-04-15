@@ -2,6 +2,7 @@ import os
 import sys
 import json
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor
 import PyPDF2
 from ollama import Client
 from openai import OpenAI
@@ -540,17 +541,22 @@ def analyze_directory(directory_path, online_mode=False):
     print_separator()
     
     file_summaries = []
-    
+
     print("GENERATING FILE SUMMARIES:")
-    for file_path in files_to_process:
+    max_workers = 5 if online_mode else 3
+
+    def summarize_file(file_path):
         print(f"\nAnalyzing: {file_path}")
         summary = get_file_summary(file_path, online_mode=online_mode)
         if summary:
             print(f"Summary: {summary}")
-            file_summaries.append({
-                "file_path": file_path,
-                "summary": summary
-            })
+            return {"file_path": file_path, "summary": summary}
+        return None
+
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        results = executor.map(summarize_file, files_to_process)
+
+    file_summaries = [r for r in results if r is not None]
     
     if file_summaries:
         formatted_input = []
