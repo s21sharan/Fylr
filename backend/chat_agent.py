@@ -6,6 +6,7 @@ from langchain.llms import Ollama
 from langchain.chat_models import ChatOpenAI
 from openai import OpenAI
 import json
+import re
 import os
 from dotenv import load_dotenv
 
@@ -101,7 +102,8 @@ class FileOrganizationAgent:
                 response_obj = self.openai_client.chat.completions.create(
                     model="gpt-4-turbo-preview",
                     messages=[{"role": "user", "content": prompt}],
-                    temperature=0
+                    temperature=0,
+                    response_format={"type": "json_object"}
                 )
                 
                 # Track token usage
@@ -158,16 +160,32 @@ class FileOrganizationAgent:
                 "updatedFileStructure": None
             }
     
-    def extract_json_from_response(self, response):
+    def extract_json_from_response(self, response: str):
         """Extract JSON structure from the response if present"""
+        # 1. Try direct parse first
         try:
-            # Look for JSON blocks in the response
-            start_idx = response.find('{')
-            end_idx = response.rfind('}')
-            
-            if start_idx != -1 and end_idx != -1:
-                json_str = response[start_idx:end_idx + 1]
-                return json.loads(json_str)
-            return None
+            return json.loads(response.strip())
         except:
-            return None
+            pass
+        # 2. Strip markdown code fences
+        stripped = re.sub(r'```(?:json)?\s*', '', response).strip().rstrip('`').strip()
+        try:
+            return json.loads(stripped)
+        except:
+            pass
+        # 3. Find the outermost JSON object using a proper scan
+        depth = 0
+        start = None
+        for i, ch in enumerate(response):
+            if ch == '{':
+                if depth == 0:
+                    start = i
+                depth += 1
+            elif ch == '}':
+                depth -= 1
+                if depth == 0 and start is not None:
+                    try:
+                        return json.loads(response[start:i+1])
+                    except:
+                        start = None  # keep scanning
+        return None
