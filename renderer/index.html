@@ -207,7 +207,25 @@
 
       <div class="tab-content" id="live-mode">
         <h2>Live Mode</h2>
-        <p>Live file organization coming soon...</p>
+        <p>Watch a directory for new files and get AI-powered organization suggestions.</p>
+        <div class="live-mode-controls">
+          <div class="directory-input">
+            <input
+              type="text"
+              id="liveDirectoryPath"
+              placeholder="Type or browse for directory to watch..."
+              spellcheck="false"
+            >
+            <button id="liveBrowseBtn" class="browse-btn">Browse</button>
+          </div>
+          <div class="live-actions">
+            <button id="liveToggleBtn" class="primary-btn">Start Watching</button>
+            <span id="liveStatus" class="live-status">Stopped</span>
+          </div>
+        </div>
+        <div id="liveSuggestions" class="live-suggestions-container">
+          <!-- Suggestion cards will be appended here -->
+        </div>
       </div>
 
       <div class="tab-content" id="agentic-search">

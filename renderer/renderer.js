@@ -1515,3 +1515,138 @@ searchQueryBtn.addEventListener('click', async () => {
     searchQueryBtn.disabled = false;
   }
 });
+
+// ============================================================
+// Live Mode
+// ============================================================
+
+const liveDirectoryInput = document.getElementById('liveDirectoryPath');
+const liveBrowseBtn = document.getElementById('liveBrowseBtn');
+const liveToggleBtn = document.getElementById('liveToggleBtn');
+const liveStatus = document.getElementById('liveStatus');
+const liveSuggestions = document.getElementById('liveSuggestions');
+
+let isLiveWatching = false;
+
+// Browse for directory
+liveBrowseBtn.addEventListener('click', async () => {
+  const directoryPath = await ipcRenderer.invoke('select-directory');
+  if (directoryPath) {
+    liveDirectoryInput.value = directoryPath;
+  }
+});
+
+// Toggle start/stop watching
+liveToggleBtn.addEventListener('click', async () => {
+  if (isLiveWatching) {
+    // Stop watching
+    try {
+      await ipcRenderer.invoke('stop-live-watch');
+      isLiveWatching = false;
+      liveToggleBtn.textContent = 'Start Watching';
+      liveStatus.textContent = 'Stopped';
+      liveStatus.classList.remove('watching');
+      showMessage('Live watcher stopped.', 'info');
+    } catch (error) {
+      showMessage(`Error stopping watcher: ${error.message}`, 'error');
+    }
+  } else {
+    // Start watching
+    const directory = liveDirectoryInput.value.trim();
+    if (!directory) {
+      showMessage('Please select a directory to watch.', 'error');
+      return;
+    }
+
+    const isValid = await ipcRenderer.invoke('validate-directory', directory);
+    if (!isValid) {
+      showMessage('Please enter a valid directory path.', 'error');
+      return;
+    }
+
+    try {
+      const onlineMode = modeToggle.checked;
+      await ipcRenderer.invoke('start-live-watch', {
+        directory: directory,
+        online_mode: onlineMode
+      });
+      isLiveWatching = true;
+      liveToggleBtn.textContent = 'Stop Watching';
+      liveStatus.textContent = 'Watching...';
+      liveStatus.classList.add('watching');
+      showMessage(`Now watching: ${directory}`, 'success');
+    } catch (error) {
+      showMessage(`Error starting watcher: ${error.message}`, 'error');
+    }
+  }
+});
+
+// Handle watcher stopped event (e.g. process crashed)
+ipcRenderer.on('live-watcher-stopped', () => {
+  if (isLiveWatching) {
+    isLiveWatching = false;
+    liveToggleBtn.textContent = 'Start Watching';
+    liveStatus.textContent = 'Stopped';
+    liveStatus.classList.remove('watching');
+  }
+});
+
+// Handle incoming suggestions
+ipcRenderer.on('live-suggestion', (event, suggestion) => {
+  const card = document.createElement('div');
+  card.className = 'suggestion-card';
+
+  card.innerHTML = `
+    <div class="suggestion-header">
+      <span class="suggestion-filename">${escapeHtml(suggestion.filename)}</span>
+      <span class="suggestion-category">${escapeHtml(suggestion.category)}</span>
+    </div>
+    <div class="suggestion-summary">${escapeHtml(suggestion.summary)}</div>
+    <div class="suggestion-path">Move to: ${escapeHtml(suggestion.dst_path)}</div>
+    <div class="suggestion-actions">
+      <button class="accept-btn">Accept</button>
+      <button class="ignore-btn">Ignore</button>
+    </div>
+  `;
+
+  const acceptBtn = card.querySelector('.accept-btn');
+  const ignoreBtn = card.querySelector('.ignore-btn');
+
+  acceptBtn.addEventListener('click', async () => {
+    try {
+      acceptBtn.disabled = true;
+      acceptBtn.textContent = 'Applying...';
+      const fileStructure = {
+        files: [
+          {
+            src_path: suggestion.src_path,
+            dst_path: suggestion.dst_path
+          }
+        ]
+      };
+      await ipcRenderer.invoke('apply-changes', fileStructure);
+      card.style.opacity = '0.5';
+      acceptBtn.textContent = 'Applied';
+      ignoreBtn.style.display = 'none';
+      showMessage(`Moved ${suggestion.filename} to ${suggestion.category}/`, 'success');
+    } catch (error) {
+      acceptBtn.disabled = false;
+      acceptBtn.textContent = 'Accept';
+      showMessage(`Error moving file: ${error.message}`, 'error');
+    }
+  });
+
+  ignoreBtn.addEventListener('click', () => {
+    card.remove();
+  });
+
+  // Prepend so newest suggestions are at the top
+  liveSuggestions.prepend(card);
+});
+
+// Helper to escape HTML to prevent injection
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
