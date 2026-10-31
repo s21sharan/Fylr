@@ -106,9 +106,30 @@ ipcMain.handle('select-directory', async () => {
   const result = await dialog.showOpenDialog(mainWindow, {
     properties: ['openDirectory']
   });
-  
+
   if (!result.canceled) {
     return result.filePaths[0];
+  }
+  return null;
+});
+
+ipcMain.handle('select-files', async () => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    properties: ['openFile', 'multiSelections'],
+    filters: [
+      { name: 'All Files', extensions: ['*'] }
+    ]
+  });
+
+  if (!result.canceled && result.filePaths.length > 0) {
+    return result.filePaths.map(filePath => {
+      const stats = fs.statSync(filePath);
+      return {
+        name: path.basename(filePath),
+        path: filePath,
+        size: stats.size
+      };
+    });
   }
   return null;
 });
@@ -409,16 +430,17 @@ ipcMain.handle('chat-query', async (event, { message, currentFileStructure }) =>
 // Add after existing IPC handlers
 ipcMain.handle('get-files', async (event, directoryPath) => {
   try {
-    const files = await fs.promises.readdir(directoryPath, { withFileTypes: true });
-    return files
-      .filter(file => file.isFile())
-      .map(file => {
-        const filePath = path.join(directoryPath, file.name);
+    const hidden = new Set(['.DS_Store', '.localized', 'Thumbs.db', 'desktop.ini']);
+    const entries = await fs.promises.readdir(directoryPath, { withFileTypes: true });
+    return entries
+      .filter(entry => entry.isFile() && !entry.name.startsWith('.') && !hidden.has(entry.name))
+      .map(entry => {
+        const filePath = path.join(directoryPath, entry.name);
         const stats = fs.statSync(filePath);
         return {
-          name: file.name,
+          name: entry.name,
           path: filePath,
-          size: stats.size // File size in bytes
+          size: stats.size
         };
       });
   } catch (error) {
@@ -493,13 +515,7 @@ ipcMain.handle('generate-filenames', async (event, { files, online_mode }) => {
         if (err) {
           console.error('Python script error:', err);
           debug('Python execution failed with error:', err);
-
-          // Provide a more helpful error message
-          if (err.message && err.message.includes('ModuleNotFoundError: No module named \'moondream\'')) {
-            reject(new Error('The Moondream module is not installed. Try using online mode or install the required dependencies.'));
-          } else {
-            reject(err);
-          }
+          reject(err);
           return;
         }
 
@@ -508,7 +524,6 @@ ipcMain.handle('generate-filenames', async (event, { files, online_mode }) => {
           // Process all output lines to capture token usage
           let lastLine = '';
           for (const line of results) {
-            // Only track token usage when in online mode
             if (line.startsWith('TOKEN_USAGE:') && online_mode) {
               const tokens = parseInt(line.split(':')[1]);
               updateTokenUsage(tokens);
@@ -528,12 +543,13 @@ ipcMain.handle('generate-filenames', async (event, { files, online_mode }) => {
         }
       });
 
-      // Handle process output in real-time
+      // Handle process output in real-time — forward logs to renderer
       pythonProcess.on('message', (message) => {
-        // Only track token usage when in online mode
         if (message.startsWith('TOKEN_USAGE:') && online_mode) {
           const tokens = parseInt(message.split(':')[1]);
           updateTokenUsage(tokens);
+        } else if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('rename-log', message);
         }
       });
 

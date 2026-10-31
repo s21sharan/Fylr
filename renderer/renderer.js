@@ -47,6 +47,66 @@ let generatedNames = {};
 let selectedFiles = new Set();
 let lastRenameUndoManifest = [];
 
+// Create file preview modal
+const previewModal = document.createElement('div');
+previewModal.className = 'preview-modal';
+previewModal.innerHTML = `
+  <div class="preview-overlay"></div>
+  <div class="preview-container">
+    <div class="preview-header">
+      <span class="preview-filename"></span>
+      <button class="preview-close">&times;</button>
+    </div>
+    <div class="preview-body"></div>
+  </div>
+`;
+document.body.appendChild(previewModal);
+
+previewModal.querySelector('.preview-overlay').addEventListener('click', closePreview);
+previewModal.querySelector('.preview-close').addEventListener('click', closePreview);
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') closePreview();
+});
+
+function closePreview() {
+  previewModal.style.display = 'none';
+  previewModal.querySelector('.preview-body').innerHTML = '';
+}
+
+function openPreview(filePath, fileName) {
+  const ext = fileName.split('.').pop().toLowerCase();
+  const body = previewModal.querySelector('.preview-body');
+  const header = previewModal.querySelector('.preview-filename');
+  header.textContent = fileName;
+  body.innerHTML = '';
+
+  if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'tiff'].includes(ext)) {
+    const img = document.createElement('img');
+    img.src = 'file://' + filePath;
+    img.className = 'preview-image';
+    body.appendChild(img);
+  } else if (ext === 'pdf') {
+    const webview = document.createElement('webview');
+    webview.src = 'file://' + filePath;
+    webview.className = 'preview-pdf';
+    body.appendChild(webview);
+  } else {
+    // For other files, try to show text content
+    try {
+      const fs = require('fs');
+      const content = fs.readFileSync(filePath, 'utf-8').substring(0, 5000);
+      const pre = document.createElement('pre');
+      pre.className = 'preview-text';
+      pre.textContent = content;
+      body.appendChild(pre);
+    } catch (e) {
+      body.innerHTML = '<div class="preview-unsupported">Preview not available for this file type</div>';
+    }
+  }
+
+  previewModal.style.display = 'flex';
+}
+
 // Create modal for adding directories
 const modal = document.createElement('div');
 modal.className = 'modal';
@@ -760,10 +820,13 @@ function getFileIcon(fileName) {
 // Add tab switching functionality
 tabButtons.forEach(button => {
   button.addEventListener('click', () => {
+    // Skip disabled tabs
+    if (button.classList.contains('disabled-tab')) return;
+
     // Remove active class from all buttons and contents
     tabButtons.forEach(btn => btn.classList.remove('active'));
     tabContents.forEach(content => content.classList.remove('active'));
-    
+
     // Add active class to clicked button and corresponding content
     button.classList.add('active');
     const tabId = button.getAttribute('data-tab');
@@ -998,12 +1061,72 @@ function removeThinkingIndicator(id) {
   }
 }
 
-// Event listeners for rename tab
-renameBrowseBtn.addEventListener('click', async () => {
+// Browse button dropdown for folder or files
+const browseDropdown = document.createElement('div');
+browseDropdown.className = 'browse-dropdown';
+browseDropdown.innerHTML = `
+  <button class="browse-option" id="browseFolderBtn">Select Folder</button>
+  <button class="browse-option" id="browseFilesBtn">Select Files</button>
+`;
+renameBrowseBtn.parentNode.style.position = 'relative';
+renameBrowseBtn.parentNode.appendChild(browseDropdown);
+
+renameBrowseBtn.addEventListener('click', (e) => {
+  e.stopPropagation();
+  browseDropdown.classList.toggle('show');
+});
+
+document.addEventListener('click', () => {
+  browseDropdown.classList.remove('show');
+});
+
+function addFilesToList(newFiles) {
+  // Deduplicate by path
+  const existingPaths = new Set(filesToRename.map(f => f.path));
+  const unique = newFiles.filter(f => !existingPaths.has(f.path));
+  if (unique.length === 0) {
+    showMessage('Files already in list', 'info');
+    return;
+  }
+  filesToRename = [...filesToRename, ...unique];
+  // Update input label
+  const dirs = new Set(filesToRename.map(f => require('path').dirname(f.path)));
+  renameDirectoryInput.value = dirs.size === 1 ? [...dirs][0] : `${filesToRename.length} files from ${dirs.size} locations`;
+  updateRenamePreview();
+  generateNamesBtn.disabled = false;
+  renameApplyBtn.disabled = !Object.keys(generatedNames).length;
+  showMessage(`${unique.length} file${unique.length > 1 ? 's' : ''} added (${filesToRename.length} total)`, 'success');
+}
+
+function removeFileFromList(filePath) {
+  filesToRename = filesToRename.filter(f => f.path !== filePath);
+  delete generatedNames[require('path').basename(filePath)];
+  if (filesToRename.length === 0) {
+    renameDirectoryInput.value = '';
+    generateNamesBtn.disabled = true;
+    renameApplyBtn.disabled = true;
+  }
+  updateRenamePreview();
+}
+
+document.getElementById('browseFolderBtn').addEventListener('click', async (e) => {
+  e.stopPropagation();
+  browseDropdown.classList.remove('show');
   const directoryPath = await ipcRenderer.invoke('select-directory');
   if (directoryPath) {
-    renameDirectoryInput.value = directoryPath;
-    loadFilesForRenaming(directoryPath);
+    const files = await ipcRenderer.invoke('get-files', directoryPath);
+    if (files && files.length) {
+      addFilesToList(files);
+    }
+  }
+});
+
+document.getElementById('browseFilesBtn').addEventListener('click', async (e) => {
+  e.stopPropagation();
+  browseDropdown.classList.remove('show');
+  const files = await ipcRenderer.invoke('select-files');
+  if (files && files.length) {
+    addFilesToList(files);
   }
 });
 
@@ -1013,54 +1136,60 @@ renameDirectoryInput.addEventListener('input', () => {
   }
 });
 
+// Listen for real-time logs from main process (logged to console only)
+ipcRenderer.on('rename-log', (event, message) => {
+  console.log('[rename]', message);
+});
+
 // Update generate names function
 generateNamesBtn.addEventListener('click', async () => {
   if (!filesToRename.length) return;
-  
+
   try {
     // Check rate limits if in online mode
     if (modeToggle.checked) {
       const canProceed = await checkRateLimits();
       if (!canProceed) return;
     }
-    
+
     // Increment call counter
     await ipcRenderer.invoke('update-call-usage');
-    
+
     generateNamesBtn.disabled = true;
+    generateNamesBtn.classList.add('loading');
+    generateNamesBtn.textContent = 'Analyzing files...';
     renameApplyBtn.disabled = true;
-    showMessage('Generating new filenames...', 'info');
-    
+
+    showMessage('Analyzing files and generating names...', 'info');
+
     const result = await ipcRenderer.invoke('generate-filenames', {
       files: filesToRename,
       online_mode: modeToggle.checked
     });
-    
+
     if (result.success) {
-      // Ensure generatedNames is initialized as an object
       generatedNames = result.generated_names || {};
       console.log('Successfully received generated names:', generatedNames);
-      
-      // Directly enable the rename button here
+
       const renameBtn = document.getElementById('renameApplyBtn');
       if (renameBtn && Object.keys(generatedNames).length > 0) {
         renameBtn.disabled = false;
-        console.log('Directly enabled the rename button:', renameBtn);
       }
-      
+
       updateRenamePreview();
       updateRenameButtons();
-      
       showMessage('New filenames generated successfully!', 'success');
-      
+
     } else {
-      showMessage(`Error: ${result.error}`, 'error');
+        showMessage(`Error: ${result.error}`, 'error');
     }
   } catch (error) {
     console.error('Error generating names:', error);
     showMessage(`Error: ${error.message}`, 'error');
   } finally {
     generateNamesBtn.disabled = false;
+    generateNamesBtn.classList.remove('loading');
+    generateNamesBtn.textContent = 'Generate Names';
   }
 });
 
@@ -1086,12 +1215,13 @@ function updateRenamePreview() {
     const item = document.createElement('div');
     item.className = 'rename-preview-item';
     
-    // Original name
+    // Original name (clickable for preview)
     const originalName = document.createElement('div');
-    originalName.className = 'original';
+    originalName.className = 'original preview-trigger';
     originalName.textContent = file.name;
-    // Add tooltip data attribute for long filenames
+    originalName.title = 'Click to preview';
     originalName.setAttribute('data-tooltip', file.name);
+    originalName.addEventListener('click', () => openPreview(file.path, file.name));
     
     // New name container
     const newName = document.createElement('div');
@@ -1099,15 +1229,16 @@ function updateRenamePreview() {
     
     // Text display
     const newNameText = document.createElement('span');
-    const displayName = generatedNames[file.name] || file.name;
-    newNameText.textContent = displayName;
+    const displayName = generatedNames[file.name] || '';
+    newNameText.textContent = displayName || '—';
+    if (!displayName) newNameText.classList.add('placeholder-name');
     // Add tooltip data attribute for long filenames
-    newNameText.setAttribute('data-tooltip', displayName);
-    
+    newNameText.setAttribute('data-tooltip', displayName || 'Not yet generated');
+
     // Input field (hidden by default)
     const newNameInput = document.createElement('input');
     newNameInput.type = 'text';
-    newNameInput.value = generatedNames[file.name] || file.name;
+    newNameInput.value = generatedNames[file.name] || '';
     newNameInput.addEventListener('blur', () => {
       item.classList.remove('editing');
       if (newNameInput.value.trim() !== '') {
@@ -1148,23 +1279,37 @@ function updateRenamePreview() {
     size.className = 'size';
     size.textContent = formatFileSize(file.size);
     
-    // Edit button
+    // Action buttons
     const actions = document.createElement('div');
+    actions.className = 'actions-cell';
+
+    const previewBtn = document.createElement('button');
+    previewBtn.className = 'action-btn preview-btn';
+    previewBtn.innerHTML = '👁';
+    previewBtn.title = 'Preview file';
+    previewBtn.addEventListener('click', () => openPreview(file.path, file.name));
+    actions.appendChild(previewBtn);
+
     const editBtn = document.createElement('button');
-    editBtn.className = 'edit-btn';
+    editBtn.className = 'action-btn edit-btn';
     editBtn.innerHTML = '✏️';
     editBtn.title = 'Edit name';
     editBtn.addEventListener('click', () => {
-      // Remove editing class from any other items
       document.querySelectorAll('.rename-preview-item').forEach(el => {
         if (el !== item) el.classList.remove('editing');
       });
-      // Toggle editing for this item
       item.classList.add('editing');
       newNameInput.focus();
       newNameInput.select();
     });
     actions.appendChild(editBtn);
+
+    const removeBtn = document.createElement('button');
+    removeBtn.className = 'action-btn remove-btn';
+    removeBtn.innerHTML = '&times;';
+    removeBtn.title = 'Remove from list';
+    removeBtn.addEventListener('click', () => removeFileFromList(file.path));
+    actions.appendChild(removeBtn);
     
     // Add all elements to the item
     item.appendChild(originalName);

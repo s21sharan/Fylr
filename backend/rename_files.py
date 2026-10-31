@@ -1,75 +1,46 @@
 import os
 import sys
 import json
-from pathlib import Path
 import logging
-from openai import OpenAI
-from ollama import Client
-from dotenv import load_dotenv
-from file_organizer import get_file_summary, generate_file_name
+import re
 import base64
-from PIL import Image
-
-# Import the analyze_image_with_openai function
-from test_openai_vision import analyze_image_with_openai
 
 # Load environment variables
+from dotenv import load_dotenv
 load_dotenv()
 
-# Configure logging to output to both file and console
+# Configure logging — stdout only, INFO level
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
     datefmt='%Y-%m-%d %H:%M:%S',
-    handlers=[
-        logging.StreamHandler(sys.stdout),  # Output to console
-        logging.FileHandler('rename_files.log')  # Output to file
-    ]
+    handlers=[logging.StreamHandler(sys.stdout)]
 )
 logger = logging.getLogger('file_renamer')
 
-# Initialize OpenAI client (will be used only in online mode)
-openai_client = None
-try:
-    openai_api_key = os.getenv('OPENAI_API_KEY')
-    if openai_api_key:
-        openai_client = OpenAI(api_key=openai_api_key)
-        logger.info("OpenAI client initialized successfully")
-    else:
-        logger.warning("OPENAI_API_KEY not found in environment variables. Online mode will not be available.")
-except Exception as e:
-    logger.error(f"Failed to initialize OpenAI client: {str(e)}")
+# Lazy-initialized clients (created on first use)
+_openai_client = None
+_ollama_client = None
 
-# Initialize Ollama client (will be used only in offline mode)
-ollama_client = None
-try:
-    ollama_client = Client(host="http://localhost:11434")
-    logger.info("Ollama client initialized successfully")
-except Exception as e:
-    logger.error(f"Failed to initialize Ollama client: {str(e)}")
-
-# Initialize Moondream model for image analysis
-moondream_model = None
-try:
-    # Only import moondream if we're going to use it
-    import moondream as md
-    # Try to use the default model (will download automatically on first use)
-    try:
-        moondream_model = md.vl()
-        logger.info("Moondream model initialized successfully (using default model)")
-    except Exception as e:
-        logger.warning(f"Failed to initialize Moondream with default model: {str(e)}")
-        # Fallback to checking for local model file
-        model_path = os.path.expanduser("~/Downloads/moondream-0_5b-int8.mf")
-        if os.path.exists(model_path):
-            moondream_model = md.vl(model=model_path)
-            logger.info(f"Moondream model initialized successfully from: {model_path}")
+def _get_openai_client():
+    global _openai_client
+    if _openai_client is None:
+        from openai import OpenAI
+        api_key = os.getenv('OPENAI_API_KEY')
+        if api_key:
+            _openai_client = OpenAI(api_key=api_key)
+            logger.info("OpenAI client initialized")
         else:
-            logger.warning(f"Moondream model file not found at: {model_path}")
-except ImportError:
-    logger.warning("Moondream package not installed. Simple image analysis will be used for offline mode.")
-except Exception as e:
-    logger.error(f"Failed to initialize Moondream model: {str(e)}")
+            logger.warning("OPENAI_API_KEY not found")
+    return _openai_client
+
+def _get_ollama_client():
+    global _ollama_client
+    if _ollama_client is None:
+        from ollama import Client
+        _ollama_client = Client(host="http://localhost:11434")
+        logger.info("Ollama client initialized")
+    return _ollama_client
 
 def is_image_file(file_path):
     """Check if a file is an image based on its extension"""
@@ -81,164 +52,207 @@ def encode_image_to_base64(image_path):
     with open(image_path, "rb") as image_file:
         return base64.b64encode(image_file.read()).decode('utf-8')
 
-def analyze_image_with_moondream(image_path):
-    """Analyze image using Moondream model or fallback to basic analysis"""
+def analyze_image_with_local_vision(image_path):
+    """Analyze image using Ollama moondream model (fast, lightweight)"""
     try:
-        image = Image.open(image_path)
-        
-        # If Moondream is available, use it
-        if moondream_model:
-            result = moondream_model.caption(image)
-            caption = result["caption"]
-            return f"Image containing {caption.lower()}"
-        
-        # Otherwise, use a simple fallback method
-        width, height = image.size
-        format_name = image.format
-        mode = image.mode
-        
-        # Very basic image info without ML analysis
-        image_summary = f"Image ({width}x{height} {format_name})"
-        
-        # If Ollama is available, try to use it for a better description based on this basic info
-        if ollama_client:
-            try:
-                prompt = f"""Based on these image details: {width}x{height} {format_name} image named '{os.path.basename(image_path)}',
-generate a very concise description that might help organize the file. Focus on what could be in this image based on the filename."""
-                
-                response = ollama_client.chat(
-                    model='mistral',
-                    messages=[{'role': 'user', 'content': prompt}],
-                    options={"temperature": 0, "num_predict": 100}
-                )
-                
-                summary = response['message']['content'].strip()
-                return f"Image possibly containing {summary.lower()}"
-            except:
-                pass
-        
-        return image_summary
+        client = _get_ollama_client()
+        if client:
+            with open(image_path, "rb") as img_file:
+                img_b64 = base64.b64encode(img_file.read()).decode('utf-8')
+            for model in ['moondream', 'llama3.2-vision']:
+                try:
+                    response = client.chat(
+                        model=model,
+                        messages=[{
+                            'role': 'user',
+                            'content': 'What equipment, objects, or activities are in this image? Be specific and concise.',
+                            'images': [img_b64]
+                        }],
+                        options={
+                            "temperature": 0,
+                            "num_predict": 25,
+                            "num_thread": 4,
+                        },
+                        keep_alive="5m",
+                    )
+                    desc = response['message']['content'].strip()
+                    if desc:
+                        logger.info(f"[{model}] {os.path.basename(image_path)}: {desc}")
+                        return desc
+                except Exception as e:
+                    logger.warning(f"{model} not available: {e}")
+                    continue
+
+        logger.warning(f"No vision model available for {image_path}")
+        return f"file {os.path.basename(image_path)}"
     except Exception as e:
-        logger.error(f"Error analyzing image with local methods: {str(e)}")
-        return f"Image file: {os.path.basename(image_path)}"
+        logger.error(f"Error analyzing image: {str(e)}")
+        return f"file {os.path.basename(image_path)}"
+
+_STOP_WORDS = {
+    # grammar
+    'a', 'an', 'the', 'in', 'on', 'at', 'of', 'with', 'and', 'is', 'are',
+    'its', 'this', 'that', 'from', 'for', 'to', 'by', 'it', 'has', 'was',
+    'also', 'known', 'as', 'while', 'being', 'into', 'their', 'other',
+    'who', 'there', 'each', 'using', 'around',
+    # image description filler
+    'image', 'photo', 'photograph', 'picture', 'showing', 'featuring', 'shows',
+    'depicts', 'depicted', 'scene', 'view', 'main', 'subject', 'captured',
+    'close', 'up', 'closeup', 'rendering', 'render', 'features', 'contains',
+    # adjectives that don't help identify content
+    'majestic', 'prominent', 'beautiful', 'stunning', 'historic', 'large',
+    'small', 'young', 'visible', 'casual', 'various', 'gray', 'grey',
+    # moondream artifacts
+    'urn', 'urns',
+    # people/clothing (too generic for filenames)
+    'man', 'woman', 'person', 'people', 'group', 'individual', 'individuals',
+    'men', 'women', 'boy', 'girl', 'guy',
+    'shirt', 'sweatshirt', 'jacket', 'pants', 'dress', 'hoodie', 'jersey',
+    'wearing', 'word', 'letter',
+    # action filler
+    'pose', 'poses', 'posing', 'looks', 'looking', 'seen', 'sits',
+    'standing', 'operating', 'taking', 'holding', 'positioned',
+    # spatial/generic filler
+    'front', 'back', 'behind', 'near', 'next', 'some', 'several',
+    'pair', 'set', 'type', 'kind', 'style',
+}
+
+def extract_filename_from_summary(summary, max_words=3):
+    """Extract a concise filename directly from a summary string, no LLM needed."""
+    text = re.sub(r'^(image|the image)\s+(containing|of|showing|depicting|with|featuring|shows)?\s*', '', summary, flags=re.IGNORECASE)
+    # Deduplicate while preserving order
+    seen = set()
+    words = []
+    for w in re.findall(r'[a-zA-Z]{2,}', text):
+        wl = w.lower()
+        if wl not in _STOP_WORDS and wl not in seen:
+            seen.add(wl)
+            words.append(wl)
+    words = words[:max_words]
+    if not words:
+        words = ['file']
+    return '_'.join(words)
+
+FILE_NAMING_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "file_naming",
+        "description": "Analyze file content and produce a structured, well-named filename.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "category": {
+                    "type": "string",
+                    "description": "Broad file category. Examples: receipt, essay, photo, invoice, resume, notes, diagram, screenshot, spreadsheet, presentation, letter, report, form, contract, manual",
+                },
+                "subject": {
+                    "type": "string",
+                    "description": "1-2 word specific subject. What is it actually about? Examples: coffee_shop, linear_algebra, family_dog, quarterly_sales, job_application",
+                },
+                "filename": {
+                    "type": "string",
+                    "description": "Final filename: combine category and subject into 2-3 words, lowercase with underscores, no extension. Should be specific enough to distinguish from similar files but general enough to stay readable. Examples: coffee_receipt, algebra_notes, dog_photo, sales_report",
+                },
+            },
+            "required": ["category", "subject", "filename"],
+        },
+    },
+}
+
 
 def generate_file_name(summary, online_mode=True, max_length=30):
-    """Generate a very concise file name based on the file summary"""
-    logger.info(f"Using {'OpenAI' if online_mode else 'Local LLM'} for filename generation")
-    prompt = {
-        "task": "filename_generation",
-        "instruction": "You are given the summary of the contents of a file. Generate an extremely concise filename (2-4 words maximum) with underscores between words. Use general naming conventions. Do not include the file extension.",
-        "parameters": {
-            "max_length": max_length,
-            "format": "lowercase_with_underscores",
-            "max_words": 3,
-            "special_characters": "none",
-            "word_separator": "_"
-        },
-        "summary": summary
-    }
-    
-    if online_mode:
-        # Use OpenAI
-        response = openai_client.chat.completions.create(
-            model="gpt-4-turbo-preview",
-            messages=[
-                {"role": "user", "content": json.dumps(prompt)}
-            ],
-            temperature=0,
-            max_tokens=50
-        )
-        # Only track token usage for OpenAI
+    """Generate a concise file name based on the file summary using tool schema."""
+    # Local mode: extract filename from summary directly — no LLM call
+    if not online_mode:
+        return extract_filename_from_summary(summary)
+
+    # Online mode: use tool calling for structured output
+    client = _get_openai_client()
+    if not client:
+        return extract_filename_from_summary(summary)
+
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[{"role": "user", "content": f"Analyze this file content and generate a filename:\n\n{summary}"}],
+        tools=[FILE_NAMING_TOOL],
+        tool_choice={"type": "function", "function": {"name": "file_naming"}},
+        temperature=0,
+        max_tokens=100,
+    )
+    print(f"TOKEN_USAGE:{response.usage.total_tokens}")
+
+    tool_call = response.choices[0].message.tool_calls[0]
+    result = json.loads(tool_call.function.arguments)
+    logger.info(f"Naming result — category: {result['category']}, subject: {result['subject']}, filename: {result['filename']}")
+
+    filename = result["filename"].strip().lower()
+    filename = re.sub(r'[^a-z0-9_]', '_', filename)
+    filename = re.sub(r'_+', '_', filename).strip('_')
+    return filename
+
+def _process_single_file(file, online_mode):
+    """Process a single file: analyze content and generate a new name."""
+    file_path = file['path']
+    file_name = file['name']
+    extension = os.path.splitext(file_name)[1]
+
+    logger.info(f"Processing: {file_name}")
+
+    # Get content summary
+    if is_image_file(file_path):
         if online_mode:
-            print(f"TOKEN_USAGE:{response.usage.total_tokens}")
-        filename = response.choices[0].message.content.strip()
+            # Lazy import — only loads OpenAI vision when needed
+            from test_openai_vision import analyze_image_with_openai
+            summary = analyze_image_with_openai(file_path)
+        else:
+            summary = analyze_image_with_local_vision(file_path)
     else:
-        # Use local LLM - no token tracking
-        response = ollama_client.chat(
-            model='mistral',
-            messages=[{'role': 'user', 'content': json.dumps(prompt)}]
-        )
-        filename = response['message']['content'].strip()
-    
-    # Clean up the response
-    words = [word.strip().lower() for word in filename.split() if word.strip()]
-    filename = '_'.join(words)
-    filename = ''.join(c for c in filename if c.isalnum() or c == '_')
-    
-    if '_' not in filename and len(filename) > 3:
-        new_filename = ''
-        for i, char in enumerate(filename):
-            if i > 0 and char.isupper():
-                new_filename += '_' + char.lower()
-            else:
-                new_filename += char.lower()
-        filename = new_filename
-    
-    while '__' in filename:
-        filename = filename.replace('__', '_')
-    
-    return filename.strip('_')
+        # Lazy import — only loads file_organizer (PyPDF2, etc.) when needed
+        from file_organizer import get_file_summary
+        summary = get_file_summary(file_path, online_mode)
+
+    if not summary:
+        logger.warning(f"[{file_name}] No summary, skipping")
+        return None
+
+    # Generate filename
+    new_base = generate_file_name(summary, online_mode=online_mode)
+    if not new_base:
+        return None
+
+    new_name = f"{new_base}{extension}"
+    logger.info(f"{file_name} -> {new_name}")
+    return (file_name, new_name)
 
 def generate_filenames(files, online_mode=True):
     """Generate new filenames for the given files"""
     try:
-        logger.info(f"Starting filename generation in {'online' if online_mode else 'offline'} mode")
-        logger.info(f"Processing {len(files)} files")
-        
+        logger.info(f"{'Online' if online_mode else 'Local'} mode — {len(files)} files")
+
         generated_names = {}
-        for file in files:
-            file_path = file['path']
-            extension = os.path.splitext(file['name'])[1]
-            
-            logger.info(f"Processing file: {file_path}")
-            
-            # For images, use appropriate model based on mode
-            if is_image_file(file_path):
-                if online_mode:
-                    logger.info("Using OpenAI Vision for image analysis")
-                    summary = analyze_image_with_openai(file_path)
-                    # Only track token usage for OpenAI in online mode
-                    if online_mode and summary and hasattr(summary, 'usage'):
-                        print(f"TOKEN_USAGE:{summary.usage.total_tokens}")
-                else:
-                    logger.info("Using Moondream for image analysis")
-                    summary = analyze_image_with_moondream(file_path)
-            else:
-                # Get file summary using the function from file_organizer.py
-                logger.info(f"Getting file summary using {'OpenAI' if online_mode else 'local LLM'}")
-                summary = get_file_summary(file_path, online_mode)
-                # Only track token usage for OpenAI in online mode
-                if online_mode and summary and hasattr(summary, 'usage'):
-                    print(f"TOKEN_USAGE:{summary.usage.total_tokens}")
-            
-            if not summary:
-                logger.warning(f"No summary found for {file['name']}, skipping")
-                continue
-            
-            logger.info(f"Generated summary: {summary}")
-            
-            # Generate new filename using the function from file_organizer.py
-            logger.info(f"Generating filename using {'OpenAI' if online_mode else 'local LLM'}")
-            new_base = generate_file_name(summary, online_mode=online_mode)
-            if not new_base:
-                logger.warning(f"Could not generate filename for {file['name']}, skipping")
-                continue
-            
-            logger.info(f"Generated new base name: {new_base}")
-            generated_names[file['name']] = f"{new_base}{extension}"
-            
-        logger.info(f"Successfully generated names for {len(generated_names)} files")
-        return {
-            "success": True,
-            "generated_names": generated_names
-        }
-        
+
+        if online_mode:
+            # Online: concurrent API calls
+            from concurrent.futures import ThreadPoolExecutor, as_completed
+            with ThreadPoolExecutor(max_workers=4) as executor:
+                futures = {executor.submit(_process_single_file, f, online_mode): f for f in files}
+                for future in as_completed(futures):
+                    result = future.result()
+                    if result:
+                        generated_names[result[0]] = result[1]
+        else:
+            # Local: sequential — Ollama can only run one inference at a time
+            for f in files:
+                result = _process_single_file(f, online_mode)
+                if result:
+                    generated_names[result[0]] = result[1]
+
+        logger.info(f"Generated names for {len(generated_names)} files")
+        return {"success": True, "generated_names": generated_names}
+
     except Exception as e:
-        logger.error(f"Error generating filenames: {str(e)}", exc_info=True)
-        return {
-            "success": False,
-            "error": str(e)
-        }
+        logger.error(f"Error: {str(e)}", exc_info=True)
+        return {"success": False, "error": str(e)}
 
 def rename_files(files, new_names):
     """Rename files using the provided new names"""
@@ -338,9 +352,8 @@ if __name__ == "__main__":
             logger.error("Error: 'action' not specified in config")
             sys.exit(1)
         
-        # Get online_mode from config, default to True if not specified
         online_mode = config.get('online_mode', True)
-        logger.info(f"Running in {'online' if online_mode else 'offline'} mode")
+        logger.info(f"Mode: {'online' if online_mode else 'offline'}")
             
         if config['action'] == 'generate':
             logger.info("Starting filename generation")
