@@ -9,9 +9,8 @@ import hashlib
 import csv
 import time
 import logging
-from openai import OpenAI
 from dotenv import load_dotenv
-from ollama import Client
+from llm import get_provider
 
 # Load environment variables
 load_dotenv()
@@ -24,25 +23,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger('file_organizer')
 
-# Initialize OpenAI client (will be used only in online mode)
-try:
-    openai_api_key = os.getenv('OPENAI_API_KEY')
-    if not openai_api_key:
-        logger.error("OPENAI_API_KEY not found in environment variables")
-        raise ValueError("OPENAI_API_KEY environment variable is required for online mode")
-    openai_client = OpenAI(api_key=openai_api_key)
-    logger.info("OpenAI client initialized successfully")
-except Exception as e:
-    logger.error(f"Failed to initialize OpenAI client: {str(e)}")
-    raise
-
-# Initialize Ollama client (will be used only in offline mode)
-try:
-    ollama_client = Client(host="http://localhost:11434")
-    logger.info("Ollama client initialized successfully")
-except Exception as e:
-    logger.error(f"Failed to initialize Ollama client: {str(e)}")
-    raise
 
 FILE_PROMPT = """
 You will be provided with list of source files and a summary of their contents. Organize all the files into a directory structure that optimally organizes the files using known conventions and best practices.
@@ -180,24 +160,25 @@ def get_file_summary(file_path, online_mode=True):
             if text:
                 user_content = json.dumps({"file_path": file_path, "content": text})
 
+                provider = get_provider(online_mode)
+
                 if online_mode:
-                    # Use OpenAI with tool schema for structured output
+                    # Use provider with tool schema for structured output
                     logger.info("Making OpenAI API request...")
                     try:
-                        response = openai_client.chat.completions.create(
-                            model="gpt-4-turbo-preview",
-                            messages=[
-                                {"role": "system", "content": "Analyze the provided file content and return structured metadata."},
-                                {"role": "user", "content": user_content}
-                            ],
+                        messages = [
+                            {"role": "system", "content": "Analyze the provided file content and return structured metadata."},
+                            {"role": "user", "content": user_content}
+                        ]
+                        response = provider.chat(
+                            messages,
                             tools=[FILE_SUMMARY_TOOL],
                             tool_choice={"type": "function", "function": {"name": "file_summary"}},
                             temperature=0,
                             max_tokens=256,
                         )
                         logger.info("OpenAI API request successful")
-                        tool_call = response.choices[0].message.tool_calls[0]
-                        result = json.loads(tool_call.function.arguments)
+                        result = response.tool_call
                         logger.debug(f"Structured summary: {result}")
                         return f"{result['category']} — {result['subject']}: {result['summary']}"
                     except Exception as e:
@@ -209,16 +190,13 @@ def get_file_summary(file_path, online_mode=True):
 {"category": "broad file type", "subject": "1-3 word topic", "summary": "one sentence description"}"""
                     logger.info("Making local LLM request...")
                     try:
-                        response = ollama_client.chat(
-                            model='mistral',
-                            messages=[
-                                {"role": "system", "content": prompt},
-                                {"role": "user", "content": user_content}
-                            ],
-                            options={"temperature": 0, "num_predict": 256}
-                        )
+                        messages = [
+                            {"role": "system", "content": prompt},
+                            {"role": "user", "content": user_content}
+                        ]
+                        response = provider.chat(messages)
                         logger.info("Local LLM request successful")
-                        content = response['message']['content']
+                        content = response.content
                         logger.debug(f"Local LLM response: {content}")
                     except Exception as e:
                         logger.error(f"Local LLM request failed: {str(e)}")
@@ -261,24 +239,10 @@ def generate_file_name(summary, max_length=30, online_mode=True):
         "summary": summary
     }
     
-    if online_mode:
-        # Use OpenAI
-        response = openai_client.chat.completions.create(
-            model="gpt-4-turbo-preview",
-            messages=[
-                {"role": "user", "content": json.dumps(prompt)}
-            ],
-            temperature=0,
-            max_tokens=50
-        )
-        filename = response.choices[0].message.content.strip()
-    else:
-        # Use local LLM
-        response = ollama_client.chat(
-            model='mistral',
-            messages=[{'role': 'user', 'content': json.dumps(prompt)}]
-        )
-        filename = response['message']['content'].strip()
+    provider = get_provider(online_mode)
+    messages = [{"role": "user", "content": json.dumps(prompt)}]
+    response = provider.chat(messages, temperature=0, max_tokens=50)
+    filename = response.content.strip()
     
     # Clean up the response
     words = [word.strip().lower() for word in filename.split() if word.strip()]
@@ -305,29 +269,13 @@ def generate_file_structure(file_summaries, online_mode=True):
     try:
         summaries_json = json.dumps(file_summaries, indent=2)
         
-        if online_mode:
-            # Use OpenAI
-            response = openai_client.chat.completions.create(
-                model="gpt-4-turbo-preview",
-                messages=[
-                    {"role": "system", "content": FILE_PROMPT},
-                    {"role": "user", "content": summaries_json}
-                ],
-                temperature=0,
-                max_tokens=2048
-            )
-            content = response.choices[0].message.content
-        else:
-            # Use local LLM
-            response = ollama_client.chat(
-                model='mistral',
-                messages=[
-                    {"role": "system", "content": FILE_PROMPT},
-                    {"role": "user", "content": summaries_json}
-                ],
-                options={"temperature": 0, "num_predict": 2048}
-            )
-            content = response['message']['content']
+        provider = get_provider(online_mode)
+        messages = [
+            {"role": "system", "content": FILE_PROMPT},
+            {"role": "user", "content": summaries_json}
+        ]
+        response = provider.chat(messages, temperature=0, max_tokens=2048)
+        content = response.content
         
         try:
             result = json.loads(content)

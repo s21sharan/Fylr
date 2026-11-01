@@ -7,9 +7,8 @@ import logging
 logger = logging.getLogger(__name__)
 
 class SearchManager:
-    def __init__(self, client):
-        self.client = client
-        self.embeddings_generator = EmbeddingsGenerator(client)
+    def __init__(self):
+        self.embeddings_generator = EmbeddingsGenerator()
         self.index_manager = FaissIndexManager()
         self.setup_logging()
     

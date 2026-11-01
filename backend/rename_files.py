@@ -9,6 +9,8 @@ import base64
 from dotenv import load_dotenv
 load_dotenv()
 
+from llm import get_provider
+
 # Configure logging — stdout only, INFO level
 logging.basicConfig(
     level=logging.INFO,
@@ -17,30 +19,6 @@ logging.basicConfig(
     handlers=[logging.StreamHandler(sys.stdout)]
 )
 logger = logging.getLogger('file_renamer')
-
-# Lazy-initialized clients (created on first use)
-_openai_client = None
-_ollama_client = None
-
-def _get_openai_client():
-    global _openai_client
-    if _openai_client is None:
-        from openai import OpenAI
-        api_key = os.getenv('OPENAI_API_KEY')
-        if api_key:
-            _openai_client = OpenAI(api_key=api_key)
-            logger.info("OpenAI client initialized")
-        else:
-            logger.warning("OPENAI_API_KEY not found")
-    return _openai_client
-
-def _get_ollama_client():
-    global _ollama_client
-    if _ollama_client is None:
-        from ollama import Client
-        _ollama_client = Client(host="http://localhost:11434")
-        logger.info("Ollama client initialized")
-    return _ollama_client
 
 def is_image_file(file_path):
     """Check if a file is an image based on its extension"""
@@ -52,42 +30,22 @@ def encode_image_to_base64(image_path):
     with open(image_path, "rb") as image_file:
         return base64.b64encode(image_file.read()).decode('utf-8')
 
-def analyze_image_with_local_vision(image_path):
-    """Analyze image using Ollama moondream model (fast, lightweight)"""
-    try:
-        client = _get_ollama_client()
-        if client:
-            with open(image_path, "rb") as img_file:
-                img_b64 = base64.b64encode(img_file.read()).decode('utf-8')
-            for model in ['moondream', 'llama3.2-vision']:
-                try:
-                    response = client.chat(
-                        model=model,
-                        messages=[{
-                            'role': 'user',
-                            'content': 'What equipment, objects, or activities are in this image? Be specific and concise.',
-                            'images': [img_b64]
-                        }],
-                        options={
-                            "temperature": 0,
-                            "num_predict": 25,
-                            "num_thread": 4,
-                        },
-                        keep_alive="5m",
-                    )
-                    desc = response['message']['content'].strip()
-                    if desc:
-                        logger.info(f"[{model}] {os.path.basename(image_path)}: {desc}")
-                        return desc
-                except Exception as e:
-                    logger.warning(f"{model} not available: {e}")
-                    continue
-
-        logger.warning(f"No vision model available for {image_path}")
-        return f"file {os.path.basename(image_path)}"
-    except Exception as e:
-        logger.error(f"Error analyzing image: {str(e)}")
-        return f"file {os.path.basename(image_path)}"
+IMAGE_ANALYSIS_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "image_analysis",
+        "description": "Analyze an image and return structured metadata for file naming.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "category": {"type": "string", "description": "What type of image is this?"},
+                "subject": {"type": "string", "description": "1-3 word specific subject of the image."},
+                "summary": {"type": "string", "description": "One sentence description, 5-15 words."},
+            },
+            "required": ["category", "subject", "summary"],
+        },
+    },
+}
 
 _STOP_WORDS = {
     # grammar
@@ -160,29 +118,30 @@ FILE_NAMING_TOOL = {
 }
 
 
-def generate_file_name(summary, online_mode=True, max_length=30):
+def generate_file_name(summary, online_mode=True, provider=None, max_length=30):
     """Generate a concise file name based on the file summary using tool schema."""
     # Local mode: extract filename from summary directly — no LLM call
     if not online_mode:
         return extract_filename_from_summary(summary)
 
     # Online mode: use tool calling for structured output
-    client = _get_openai_client()
-    if not client:
-        return extract_filename_from_summary(summary)
+    if provider is None:
+        provider = get_provider(online_mode=True)
 
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
+    response = provider.chat(
         messages=[{"role": "user", "content": f"Analyze this file content and generate a filename:\n\n{summary}"}],
         tools=[FILE_NAMING_TOOL],
         tool_choice={"type": "function", "function": {"name": "file_naming"}},
         temperature=0,
         max_tokens=100,
     )
-    print(f"TOKEN_USAGE:{response.usage.total_tokens}")
+    print(f"TOKEN_USAGE:{response.tokens_used}")
 
-    tool_call = response.choices[0].message.tool_calls[0]
-    result = json.loads(tool_call.function.arguments)
+    result = response.tool_call
+    if not result:
+        logger.warning("No tool call returned, falling back to extraction")
+        return extract_filename_from_summary(summary)
+
     logger.info(f"Naming result — category: {result['category']}, subject: {result['subject']}, filename: {result['filename']}")
 
     filename = result["filename"].strip().lower()
@@ -198,14 +157,32 @@ def _process_single_file(file, online_mode):
 
     logger.info(f"Processing: {file_name}")
 
+    provider = get_provider(online_mode)
+
     # Get content summary
     if is_image_file(file_path):
+        with open(file_path, "rb") as img_file:
+            image_bytes = img_file.read()
+        prompt = "What equipment, objects, or activities are in this image? Be specific and concise."
+
         if online_mode:
-            # Lazy import — only loads OpenAI vision when needed
-            from test_openai_vision import analyze_image_with_openai
-            summary = analyze_image_with_openai(file_path)
+            response = provider.vision(
+                image_bytes, prompt,
+                tools=[IMAGE_ANALYSIS_TOOL],
+                tool_choice={"type": "function", "function": {"name": "image_analysis"}},
+            )
+            print(f"TOKEN_USAGE:{response.tokens_used}")
+            if response.tool_call:
+                summary = response.tool_call.get("summary", response.content or "")
+                logger.info(f"Vision analysis — category: {response.tool_call.get('category')}, "
+                            f"subject: {response.tool_call.get('subject')}, summary: {summary}")
+            else:
+                summary = response.content
         else:
-            summary = analyze_image_with_local_vision(file_path)
+            response = provider.vision(image_bytes, prompt)
+            summary = response.content
+            if summary:
+                logger.info(f"[offline vision] {file_name}: {summary}")
     else:
         # Lazy import — only loads file_organizer (PyPDF2, etc.) when needed
         from file_organizer import get_file_summary
@@ -216,7 +193,7 @@ def _process_single_file(file, online_mode):
         return None
 
     # Generate filename
-    new_base = generate_file_name(summary, online_mode=online_mode)
+    new_base = generate_file_name(summary, online_mode=online_mode, provider=provider)
     if not new_base:
         return None
 

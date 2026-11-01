@@ -34,32 +34,16 @@ Summary: {summary}
 Respond with ONLY the category name, nothing else. Use a single word or two words max with no special characters."""
 
     try:
-        if online_mode:
-            from openai import OpenAI
-            from dotenv import load_dotenv
-            load_dotenv()
-            client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
-            if not client.api_key:
-                logger.warning("No OpenAI API key found, falling back to offline mode")
-                online_mode = False
-            else:
-                response = client.chat.completions.create(
-                    model="gpt-4-turbo-preview",
-                    messages=[{"role": "user", "content": prompt}],
-                    temperature=0,
-                    max_tokens=20
-                )
-                return response.choices[0].message.content.strip()
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        from llm import get_provider
 
-        if not online_mode:
-            from ollama import Client
-            ollama_client = Client(host="http://localhost:11434")
-            response = ollama_client.chat(
-                model='mistral',
-                messages=[{"role": "user", "content": prompt}],
-                options={"temperature": 0, "num_predict": 20}
-            )
-            return response['message']['content'].strip()
+        provider = get_provider(online_mode)
+        response = provider.chat(
+            [{"role": "user", "content": prompt}],
+            temperature=0,
+            max_tokens=20,
+        )
+        return response.content.strip()
     except Exception as e:
         logger.error(f"Error categorizing file: {e}")
         # Fallback: guess category from extension
