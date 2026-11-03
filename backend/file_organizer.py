@@ -10,7 +10,7 @@ import csv
 import time
 import logging
 from dotenv import load_dotenv
-from llm import get_provider
+from llm import get_provider, resolve_provider
 
 # Load environment variables
 load_dotenv()
@@ -504,8 +504,9 @@ if __name__ == "__main__":
         with open(config_path, 'r') as config_file:
             config = json.load(config_file)
             action = config.get('action')
-            online_mode = config.get('online_mode', True)  # Default to online mode
-            logger.info(f"Configuration loaded - Mode: {'Online (OpenAI)' if online_mode else 'Offline (Local LLM)'}")
+            online_mode = config.get('online_mode', True)
+            provider_name = config.get('provider')
+            logger.info(f"Configuration loaded - Mode: {'Online' if online_mode else 'Offline'}, provider: {provider_name or 'auto'}")
             
             if action == 'organize':
                 directory = config.get('directory')

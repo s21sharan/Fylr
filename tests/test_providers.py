@@ -8,6 +8,7 @@ import pytest
 from llm import get_provider, LLMResponse
 from llm.openai_provider import OpenAIProvider
 from llm.ollama_provider import OllamaProvider
+from llm.gemini_provider import GeminiProvider
 
 
 # ---------------------------------------------------------------------------
@@ -15,8 +16,9 @@ from llm.ollama_provider import OllamaProvider
 # ---------------------------------------------------------------------------
 
 def test_get_provider_online():
+    """Online mode returns Gemini when its key is set, otherwise OpenAI."""
     provider = get_provider(True)
-    assert isinstance(provider, OpenAIProvider)
+    assert isinstance(provider, (GeminiProvider, OpenAIProvider))
 
 
 def test_get_provider_offline():

@@ -35,9 +35,9 @@ Respond with ONLY the category name, nothing else. Use a single word or two word
 
     try:
         sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-        from llm import get_provider
+        from llm import resolve_provider
 
-        provider = get_provider(online_mode)
+        provider = resolve_provider(online_mode)
         response = provider.chat(
             [{"role": "user", "content": prompt}],
             temperature=0,

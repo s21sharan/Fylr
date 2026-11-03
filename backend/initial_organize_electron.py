@@ -19,7 +19,7 @@ load_dotenv()
 
 # Ensure the llm package is importable
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from llm import get_provider
+from llm import get_provider, resolve_provider
 
 # Configure logging
 logging.basicConfig(
@@ -503,7 +503,8 @@ if __name__ == "__main__":
         with open(config_path, 'r') as config_file:
             config = json.load(config_file)
             directory = config.get('directory')
-            online_mode = config.get('online_mode', True)  # Default to online mode if not specified
+            online_mode = config.get('online_mode', True)
+            provider_name = config.get('provider')
 
             # Debug the configuration that's being received
             logger.debug("="*50)

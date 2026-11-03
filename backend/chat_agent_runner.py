@@ -16,12 +16,11 @@ def main():
     message = config['message']
     file_structure = config['currentFileStructure']
     
-    # Get the online_mode from config, defaulting to False if not specified
     online_mode = config.get('online_mode', False)
-    print(f"Chat agent running in {'ONLINE' if online_mode else 'OFFLINE'} mode")
+    provider_name = config.get('provider')
+    print(f"Chat agent running in {'ONLINE' if online_mode else 'OFFLINE'} mode, provider: {provider_name or 'auto'}")
 
-    # Create agent with the correct mode
-    agent = FileOrganizationAgent(client=None, online_mode=online_mode)
+    agent = FileOrganizationAgent(client=None, online_mode=online_mode, provider_name=provider_name)
     result = agent.process_query(message, file_structure)
 
     # Output result in one JSON line

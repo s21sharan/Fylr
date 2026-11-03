@@ -4,7 +4,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from llm import get_provider
+from llm import get_provider, resolve_provider
 
 
 SYSTEM_PROMPT = """
@@ -28,9 +28,9 @@ Important rules:
 
 
 class FileOrganizationAgent:
-    def __init__(self, client=None, online_mode=False):
+    def __init__(self, client=None, online_mode=False, provider_name=None):
         self.online_mode = online_mode
-        self.provider = get_provider(online_mode)
+        self.provider = resolve_provider(online_mode, provider_name)
         self.conversation_history = []
         print(f"Using {self.provider.name} for chat agent in {'online' if online_mode else 'offline'} mode")
 

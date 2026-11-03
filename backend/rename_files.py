@@ -9,7 +9,7 @@ import base64
 from dotenv import load_dotenv
 load_dotenv()
 
-from llm import get_provider
+from llm import get_provider, resolve_provider
 
 # Configure logging — stdout only, INFO level
 logging.basicConfig(
@@ -149,7 +149,7 @@ def generate_file_name(summary, online_mode=True, provider=None, max_length=30):
     filename = re.sub(r'_+', '_', filename).strip('_')
     return filename
 
-def _process_single_file(file, online_mode):
+def _process_single_file(file, online_mode, provider=None):
     """Process a single file: analyze content and generate a new name."""
     file_path = file['path']
     file_name = file['name']
@@ -157,7 +157,8 @@ def _process_single_file(file, online_mode):
 
     logger.info(f"Processing: {file_name}")
 
-    provider = get_provider(online_mode)
+    if provider is None:
+        provider = get_provider(online_mode)
 
     # Get content summary
     if is_image_file(file_path):
@@ -201,7 +202,7 @@ def _process_single_file(file, online_mode):
     logger.info(f"{file_name} -> {new_name}")
     return (file_name, new_name)
 
-def generate_filenames(files, online_mode=True):
+def generate_filenames(files, online_mode=True, provider=None):
     """Generate new filenames for the given files"""
     try:
         logger.info(f"{'Online' if online_mode else 'Local'} mode — {len(files)} files")
@@ -212,7 +213,7 @@ def generate_filenames(files, online_mode=True):
             # Online: concurrent API calls
             from concurrent.futures import ThreadPoolExecutor, as_completed
             with ThreadPoolExecutor(max_workers=4) as executor:
-                futures = {executor.submit(_process_single_file, f, online_mode): f for f in files}
+                futures = {executor.submit(_process_single_file, f, online_mode, provider): f for f in files}
                 for future in as_completed(futures):
                     result = future.result()
                     if result:
@@ -220,7 +221,7 @@ def generate_filenames(files, online_mode=True):
         else:
             # Local: sequential — Ollama can only run one inference at a time
             for f in files:
-                result = _process_single_file(f, online_mode)
+                result = _process_single_file(f, online_mode, provider)
                 if result:
                     generated_names[result[0]] = result[1]
 
@@ -330,11 +331,13 @@ if __name__ == "__main__":
             sys.exit(1)
         
         online_mode = config.get('online_mode', True)
-        logger.info(f"Mode: {'online' if online_mode else 'offline'}")
-            
+        provider_name = config.get('provider')
+        provider = resolve_provider(online_mode, provider_name)
+        logger.info(f"Mode: {'online' if online_mode else 'offline'}, provider: {provider.name}")
+
         if config['action'] == 'generate':
             logger.info("Starting filename generation")
-            result = generate_filenames(config['files'], online_mode)
+            result = generate_filenames(config['files'], online_mode, provider=provider)
         elif config['action'] == 'rename':
             logger.info("Starting file renaming")
             result = rename_files(config['files'], config['new_names'])

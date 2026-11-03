@@ -136,6 +136,51 @@ const chatSendBtn = document.getElementById('chatSendBtn');
 // Add mode toggle event listener
 const modeToggle = document.getElementById('modeToggle');
 const limitsBox = document.querySelector('.limits-box');
+const providerSelect = document.getElementById('providerSelect');
+const activeProviderBadge = document.getElementById('activeProvider');
+
+// Provider state
+let currentProvider = 'ollama'; // default to offline
+
+// Update the provider dropdown options based on online/offline mode
+function updateProviderDropdown(isOnline) {
+  providerSelect.innerHTML = '';
+  if (isOnline) {
+    const geminiOpt = document.createElement('option');
+    geminiOpt.value = 'gemini';
+    geminiOpt.textContent = 'Gemini';
+    providerSelect.appendChild(geminiOpt);
+
+    const openaiOpt = document.createElement('option');
+    openaiOpt.value = 'openai';
+    openaiOpt.textContent = 'OpenAI';
+    providerSelect.appendChild(openaiOpt);
+
+    // Default to Gemini when switching to online
+    providerSelect.value = 'gemini';
+    currentProvider = 'gemini';
+  } else {
+    const ollamaOpt = document.createElement('option');
+    ollamaOpt.value = 'ollama';
+    ollamaOpt.textContent = 'Ollama';
+    providerSelect.appendChild(ollamaOpt);
+
+    providerSelect.value = 'ollama';
+    currentProvider = 'ollama';
+  }
+  activeProviderBadge.textContent = currentProvider.charAt(0).toUpperCase() + currentProvider.slice(1);
+}
+
+// Listen for provider dropdown changes
+providerSelect.addEventListener('change', async (event) => {
+  currentProvider = event.target.value;
+  activeProviderBadge.textContent = currentProvider.charAt(0).toUpperCase() + currentProvider.slice(1);
+  await ipcRenderer.invoke('set-provider', currentProvider);
+  console.log(`Provider changed to: ${currentProvider}`);
+});
+
+// Initialize dropdown for default state (offline)
+updateProviderDropdown(false);
 
 // Add rate limit elements
 const tokenLimitElement = document.querySelector('.token-limit');
@@ -186,8 +231,10 @@ updateLimitsBoxVisibility();
 modeToggle.addEventListener('change', async (event) => {
   const isOnline = event.target.checked;
   await ipcRenderer.invoke('toggle-online-mode', isOnline);
-  console.log(`Mode toggled to: ${isOnline ? 'ONLINE' : 'OFFLINE'}`);
-  showMessage(`Mode set to ${isOnline ? 'ONLINE (OpenAI)' : 'OFFLINE (Local Models)'}`, 'info');
+  updateProviderDropdown(isOnline);
+  await ipcRenderer.invoke('set-provider', currentProvider);
+  console.log(`Mode toggled to: ${isOnline ? 'ONLINE' : 'OFFLINE'}, provider: ${currentProvider}`);
+  showMessage(`Mode set to ${isOnline ? 'ONLINE' : 'OFFLINE'} — ${currentProvider.charAt(0).toUpperCase() + currentProvider.slice(1)}`, 'info');
   updateLimitsBoxVisibility();
 });
 
@@ -1164,7 +1211,8 @@ generateNamesBtn.addEventListener('click', async () => {
 
     const result = await ipcRenderer.invoke('generate-filenames', {
       files: filesToRename,
-      online_mode: modeToggle.checked
+      online_mode: modeToggle.checked,
+      provider: currentProvider
     });
 
     if (result.success) {
@@ -1577,6 +1625,10 @@ document.addEventListener('DOMContentLoaded', async function() {
   const currentMode = await ipcRenderer.invoke('get-online-mode');
   console.log(`Initializing mode toggle to: ${currentMode ? 'ONLINE' : 'OFFLINE'}`);
   modeToggle.checked = currentMode;
+  updateProviderDropdown(currentMode);
+  updateLimitsBoxVisibility();
+  // Sync provider to main process
+  await ipcRenderer.invoke('set-provider', currentProvider);
 });
 
 // Register the single click handler for the rename button
@@ -1739,7 +1791,8 @@ liveToggleBtn.addEventListener('click', async () => {
       const onlineMode = modeToggle.checked;
       await ipcRenderer.invoke('start-live-watch', {
         directory: directory,
-        online_mode: onlineMode
+        online_mode: onlineMode,
+        provider: currentProvider
       });
       isLiveWatching = true;
       liveToggleBtn.textContent = 'Stop Watching';
