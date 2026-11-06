@@ -109,14 +109,18 @@
             <span class="slider round"></span>
           </label>
           <span class="mode-label">Online</span>
+          <select id="providerSelect" class="provider-select">
+            <option value="ollama">Ollama</option>
+          </select>
+          <span id="activeProvider" class="active-provider-badge">Ollama</span>
         </div>
       </div>
       
       <div class="tabs">
         <button class="tab-btn active" data-tab="file-rename">File Rename</button>
         <button class="tab-btn" data-tab="initial-organize">Initial Organize</button>
-        <button class="tab-btn" data-tab="live-mode">Live Mode</button>
-        <button class="tab-btn" data-tab="agentic-search">Agentic Search</button>
+        <button class="tab-btn disabled-tab" data-tab="live-mode">Live Mode <span class="coming-soon-badge">Soon</span></button>
+        <button class="tab-btn disabled-tab" data-tab="agentic-search">Agentic Search <span class="coming-soon-badge">Soon</span></button>
       </div>
 
       <div class="tab-content active" id="file-rename">

@@ -1,38 +1,61 @@
 import base64
 import sys
 import os
-from openai import OpenAI
 
-# Initialize OpenAI client
-try:
-    openai_api_key = os.getenv('OPENAI_API_KEY')
-    if not openai_api_key:
-        raise ValueError("OPENAI_API_KEY environment variable is required")
-    openai_client = OpenAI(api_key=openai_api_key)
-except Exception as e:
-    print(f"Failed to initialize OpenAI client: {str(e)}")
-    sys.exit(1)
+# Lazy-initialized client
+_client = None
+
+def _get_client():
+    global _client
+    if _client is None:
+        from openai import OpenAI
+        api_key = os.getenv('OPENAI_API_KEY')
+        if not api_key:
+            raise ValueError("OPENAI_API_KEY environment variable is required")
+        _client = OpenAI(api_key=api_key)
+    return _client
 
 
-def encode_image_to_base64(image_path):
-    """Encode image to base64 string"""
-    with open(image_path, "rb") as image_file:
-        return base64.b64encode(image_file.read()).decode('utf-8')
+IMAGE_ANALYSIS_TOOL = {
+    "type": "function",
+    "name": "image_analysis",
+    "description": "Analyze an image and return structured metadata for file naming.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "category": {
+                "type": "string",
+                "description": "What type of image is this? Examples: photo, screenshot, diagram, receipt, document, meme, artwork, chart, map",
+            },
+            "subject": {
+                "type": "string",
+                "description": "1-3 word specific subject of the image. What is the main thing in it? Examples: golden_retriever, circuit_board, tax_form, sunset_beach",
+            },
+            "summary": {
+                "type": "string",
+                "description": "One sentence description of the image content, 5-15 words.",
+            },
+        },
+        "required": ["category", "subject", "summary"],
+    },
+}
 
 
 def analyze_image_with_openai(image_path):
-    """Analyze image using OpenAI Vision API"""
+    """Analyze image using OpenAI Vision API -- returns structured description."""
     try:
-        # Encode image to base64
-        base64_image = encode_image_to_base64(image_path)
-        
-        # Create the response request
-        response = openai_client.responses.create(
+        client = _get_client()
+        with open(image_path, "rb") as f:
+            base64_image = base64.b64encode(f.read()).decode('utf-8')
+
+        response = client.responses.create(
             model="gpt-4o-mini",
+            tools=[IMAGE_ANALYSIS_TOOL],
+            tool_choice={"type": "function", "name": "image_analysis"},
             input=[{
                 "role": "user",
                 "content": [
-                    {"type": "input_text", "text": "What's in this image? Provide a concise description."},
+                    {"type": "input_text", "text": "Analyze this image and describe what it contains."},
                     {
                         "type": "input_image",
                         "image_url": f"data:image/jpeg;base64,{base64_image}",
@@ -41,13 +64,15 @@ def analyze_image_with_openai(image_path):
                 ],
             }],
         )
-        
-        # Print summary for debugging
-        print("Generated Summary:")
-        print(response.output_text)
-        
-        # Return the summary as a string
-        return f"Image containing {response.output_text.lower()}"
+
+        import json
+        # Extract tool call result from responses API
+        for block in response.output:
+            if block.type == "function_call":
+                result = json.loads(block.arguments)
+                return f"{result['category']} of {result['subject']}: {result['summary']}"
+
+        return None
     except Exception as e:
         print(f"Error analyzing image with OpenAI Vision: {str(e)}")
         return None

@@ -9,9 +9,8 @@ import hashlib
 import csv
 import time
 import logging
-from openai import OpenAI
 from dotenv import load_dotenv
-from ollama import Client
+from llm import get_provider, resolve_provider
 
 # Load environment variables
 load_dotenv()
@@ -24,25 +23,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger('file_organizer')
 
-# Initialize OpenAI client (will be used only in online mode)
-try:
-    openai_api_key = os.getenv('OPENAI_API_KEY')
-    if not openai_api_key:
-        logger.error("OPENAI_API_KEY not found in environment variables")
-        raise ValueError("OPENAI_API_KEY environment variable is required for online mode")
-    openai_client = OpenAI(api_key=openai_api_key)
-    logger.info("OpenAI client initialized successfully")
-except Exception as e:
-    logger.error(f"Failed to initialize OpenAI client: {str(e)}")
-    raise
-
-# Initialize Ollama client (will be used only in offline mode)
-try:
-    ollama_client = Client(host="http://localhost:11434")
-    logger.info("Ollama client initialized successfully")
-except Exception as e:
-    logger.error(f"Failed to initialize Ollama client: {str(e)}")
-    raise
 
 FILE_PROMPT = """
 You will be provided with list of source files and a summary of their contents. Organize all the files into a directory structure that optimally organizes the files using known conventions and best practices.
@@ -122,6 +102,33 @@ def is_image_file(file_path):
     mime_type, _ = mimetypes.guess_type(file_path)
     return mime_type and mime_type.startswith('image/')
 
+FILE_SUMMARY_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "file_summary",
+        "description": "Analyze file content and return structured metadata for organizing and naming.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "category": {
+                    "type": "string",
+                    "description": "Broad file category. Examples: essay, notes, receipt, invoice, resume, report, code, spreadsheet, letter, form, contract, manual, presentation, research_paper",
+                },
+                "subject": {
+                    "type": "string",
+                    "description": "1-3 word specific subject. What is it actually about? Examples: linear_algebra, tax_return, job_application, meeting_minutes, project_proposal",
+                },
+                "summary": {
+                    "type": "string",
+                    "description": "One sentence summary of the file content, 10-20 words. Specific enough to distinguish from similar files.",
+                },
+            },
+            "required": ["category", "subject", "summary"],
+        },
+    },
+}
+
+
 def get_file_summary(file_path, online_mode=True):
     """Get summary for a single file using either OpenAI or local LLM"""
     logger.debug(f"Getting summary for file: {file_path}")
@@ -149,71 +156,58 @@ def get_file_summary(file_path, online_mode=True):
                 logger.debug("Reading text file")
                 with open(file_path, 'r', encoding='utf-8') as file:
                     text = file.read(1000)  # Read only the first 1000 characters
-            
+
             if text:
-                prompt = """
-You will be provided with the contents of a file along with its metadata. Provide a summary of the contents. The purpose of the summary is to organize files based on their content. To this end provide a concise but informative summary. Make the summary as specific to the file as possible.
+                user_content = json.dumps({"file_path": file_path, "content": text})
 
-Write your response a JSON object with the following schema:
+                provider = get_provider(online_mode)
 
-```json
-{
-    "file_path": "path to the file including name",
-    "summary": "summary of the content"
-}
-```
-""".strip()
-                
                 if online_mode:
-                    # Use OpenAI
+                    # Use provider with tool schema for structured output
                     logger.info("Making OpenAI API request...")
                     try:
-                        response = openai_client.chat.completions.create(
-                            model="gpt-4-turbo-preview",
-                            messages=[
-                                {"role": "system", "content": prompt},
-                                {"role": "user", "content": json.dumps({
-                                    "file_path": file_path,
-                                    "content": text
-                                })}
-                            ],
+                        messages = [
+                            {"role": "system", "content": "Analyze the provided file content and return structured metadata."},
+                            {"role": "user", "content": user_content}
+                        ]
+                        response = provider.chat(
+                            messages,
+                            tools=[FILE_SUMMARY_TOOL],
+                            tool_choice={"type": "function", "function": {"name": "file_summary"}},
                             temperature=0,
-                            max_tokens=256
+                            max_tokens=256,
                         )
                         logger.info("OpenAI API request successful")
-                        content = response.choices[0].message.content
-                        logger.debug(f"OpenAI response: {content}")
+                        result = response.tool_call
+                        logger.debug(f"Structured summary: {result}")
+                        return f"{result['category']} - {result['subject']}: {result['summary']}"
                     except Exception as e:
                         logger.error(f"OpenAI API request failed: {str(e)}")
                         raise
                 else:
-                    # Use local LLM
+                    # Use local LLM -- no tool calling, fall back to JSON prompt
+                    prompt = """Analyze the file and respond with JSON only:
+{"category": "broad file type", "subject": "1-3 word topic", "summary": "one sentence description"}"""
                     logger.info("Making local LLM request...")
                     try:
-                        response = ollama_client.chat(
-                            model='mistral',
-                            messages=[
-                                {"role": "system", "content": prompt},
-                                {"role": "user", "content": json.dumps({
-                                    "file_path": file_path,
-                                    "content": text
-                                })}
-                            ],
-                            options={"temperature": 0, "num_predict": 256}
-                        )
+                        messages = [
+                            {"role": "system", "content": prompt},
+                            {"role": "user", "content": user_content}
+                        ]
+                        response = provider.chat(messages)
                         logger.info("Local LLM request successful")
-                        content = response['message']['content']
+                        content = response.content
                         logger.debug(f"Local LLM response: {content}")
                     except Exception as e:
                         logger.error(f"Local LLM request failed: {str(e)}")
                         raise
-                
-                try:
-                    result = json.loads(content)
-                    return result["summary"]
-                except Exception as e:
-                    logger.error(f"Error parsing JSON response: {str(e)}")
-                    return content.strip()
+
+                    try:
+                        result = json.loads(content)
+                        return f"{result['category']} - {result['subject']}: {result['summary']}"
+                    except Exception as e:
+                        logger.error(f"Error parsing JSON response: {str(e)}")
+                        return content.strip()
             else:
                 logger.warning("No text extracted from file.")
                 return None
@@ -245,24 +239,10 @@ def generate_file_name(summary, max_length=30, online_mode=True):
         "summary": summary
     }
     
-    if online_mode:
-        # Use OpenAI
-        response = openai_client.chat.completions.create(
-            model="gpt-4-turbo-preview",
-            messages=[
-                {"role": "user", "content": json.dumps(prompt)}
-            ],
-            temperature=0,
-            max_tokens=50
-        )
-        filename = response.choices[0].message.content.strip()
-    else:
-        # Use local LLM
-        response = ollama_client.chat(
-            model='mistral',
-            messages=[{'role': 'user', 'content': json.dumps(prompt)}]
-        )
-        filename = response['message']['content'].strip()
+    provider = get_provider(online_mode)
+    messages = [{"role": "user", "content": json.dumps(prompt)}]
+    response = provider.chat(messages, temperature=0, max_tokens=50)
+    filename = response.content.strip()
     
     # Clean up the response
     words = [word.strip().lower() for word in filename.split() if word.strip()]
@@ -289,29 +269,13 @@ def generate_file_structure(file_summaries, online_mode=True):
     try:
         summaries_json = json.dumps(file_summaries, indent=2)
         
-        if online_mode:
-            # Use OpenAI
-            response = openai_client.chat.completions.create(
-                model="gpt-4-turbo-preview",
-                messages=[
-                    {"role": "system", "content": FILE_PROMPT},
-                    {"role": "user", "content": summaries_json}
-                ],
-                temperature=0,
-                max_tokens=2048
-            )
-            content = response.choices[0].message.content
-        else:
-            # Use local LLM
-            response = ollama_client.chat(
-                model='mistral',
-                messages=[
-                    {"role": "system", "content": FILE_PROMPT},
-                    {"role": "user", "content": summaries_json}
-                ],
-                options={"temperature": 0, "num_predict": 2048}
-            )
-            content = response['message']['content']
+        provider = get_provider(online_mode)
+        messages = [
+            {"role": "system", "content": FILE_PROMPT},
+            {"role": "user", "content": summaries_json}
+        ]
+        response = provider.chat(messages, temperature=0, max_tokens=2048)
+        content = response.content
         
         try:
             result = json.loads(content)
@@ -540,8 +504,9 @@ if __name__ == "__main__":
         with open(config_path, 'r') as config_file:
             config = json.load(config_file)
             action = config.get('action')
-            online_mode = config.get('online_mode', True)  # Default to online mode
-            logger.info(f"Configuration loaded - Mode: {'Online (OpenAI)' if online_mode else 'Offline (Local LLM)'}")
+            online_mode = config.get('online_mode', True)
+            provider_name = config.get('provider')
+            logger.info(f"Configuration loaded - Mode: {'Online' if online_mode else 'Offline'}, provider: {provider_name or 'auto'}")
             
             if action == 'organize':
                 directory = config.get('directory')

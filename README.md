@@ -108,7 +108,62 @@ fylr/
 - **Offline Mode**: Falls back to local Ollama models
 - **Automatic Fallback**: Switches to offline when rate limits are reached
 
-## 🔧 Installation & Setup
+## Gemini / Gemma Modes
+
+Fylr supports three LLM providers, selectable from a dropdown in the UI header:
+
+- **Google Gemini** (default online) -- uses `gemini-2.0-flash` for text and vision analysis. Requires `GOOGLE_API_KEY` in `.env`.
+- **OpenAI** (online fallback) -- uses GPT-4o / GPT-4o-mini. Requires `OPENAI_API_KEY` in `.env`.
+- **Ollama** (offline) -- runs locally with `mistral` for text and `llama3.2-vision` for images. No API key needed.
+
+## MCP Server
+
+Fylr exposes its tools through the [Model Context Protocol](https://modelcontextprotocol.io/) (MCP) over stdio, so any MCP-compatible client (Claude Desktop, Gemini CLI, Google ADK) can connect.
+
+Available tools:
+
+| Tool | Description |
+|------|-------------|
+| `search_files` | Search indexed files by text query |
+| `summarize_file` | Read a file and return a short summary |
+| `propose_organization` | Dry-run: propose a folder structure without moving anything |
+| `apply_plan` | Apply a previously proposed plan (requires explicit confirm) |
+| `undo_last` | Reverse the most recently applied plan |
+
+See [docs/MCP.md](docs/MCP.md) for setup instructions and client configuration.
+
+## Search
+
+Fylr uses hybrid search combining BM25 keyword matching, FAISS embedding similarity, and reciprocal rank fusion to merge results.
+
+Eval results on a 195-file corpus (index build: 1.27s):
+
+| Mode | Recall@5 | Recall@10 | MRR | p50 (ms) | p95 (ms) |
+|------|----------|-----------|-----|----------|----------|
+| keyword | 0.5649 | 0.6465 | 0.5660 | 0.03 | 0.07 |
+| embedding | 0.5690 | 0.7354 | 0.7168 | 6.15 | 44.83 |
+| hybrid | 0.7059 | 0.7691 | 0.7233 | 7.24 | 17.26 |
+
+Hybrid mode improves Recall@5 by ~24% over keyword-only and MRR by ~28%.
+
+## Eval
+
+Run evaluation suites with:
+
+```bash
+make eval-search     # search eval -- runs locally, no API keys needed
+make eval-organize   # organize eval -- requires a configured LLM provider
+```
+
+Results are written to `eval/results/`.
+
+## Development
+
+```bash
+make test   # run the test suite
+```
+
+## Installation & Setup
 
 ### Prerequisites
 - Node.js (v14 or higher)

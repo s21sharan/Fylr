@@ -1,0 +1,382 @@
+# Search eval queries for Fylr.
+# Each entry has a natural-language query and a list of corpus-relative
+# file paths that count as relevant results.
+#
+# Categories covered: simple keyword, paraphrase, cross-type, date-based,
+# category-scoped, and negation-style queries.
+
+# ── Simple keyword matches ─────────────────────────────────────────────
+
+- query: "bubble sort"
+  relevant:
+    - "code/sort_bubble.py"
+
+- query: "quick sort implementation"
+  relevant:
+    - "code/sort_quick.py"
+
+- query: "selection sort"
+  relevant:
+    - "code/sort_selection.py"
+
+- query: "TechMart receipt"
+  relevant:
+    - "receipts/receipt_techmart_2022-02-25.txt"
+    - "receipts/receipt_techmart_2022-06-25.txt"
+    - "receipts/receipt_techmart_2022-06-27.txt"
+    - "receipts/receipt_techmart_2023-12-14.txt"
+    - "receipts/receipt_techmart_2024-10-18.txt"
+    - "receipts/receipt_techmart_2025-09-04.txt"
+
+- query: "quarterly review report"
+  relevant:
+    - "reports/quarterly_review_2022-01-23.md"
+    - "reports/quarterly_review_2023-12-20.md"
+    - "reports/quarterly_review_2024-08-14.md"
+    - "reports/quarterly_review_2024-12-06.md"
+
+- query: "cover letter"
+  relevant:
+    - "letters/cover_letter_hiro_xu_2024-03-16.txt"
+    - "letters/cover_letter_wendy_nguyen_2022-11-19.txt"
+
+- query: "resignation letter"
+  relevant:
+    - "letters/resignation_leo_kim_2025-12-14.txt"
+    - "letters/resignation_priya_baker_2025-07-28.txt"
+    - "letters/resignation_sara_garcia_2022-09-15.txt"
+
+- query: "inventory spreadsheet"
+  relevant:
+    - "spreadsheets/inventory_2022-08-23.csv"
+    - "spreadsheets/inventory_2023-05-01.csv"
+    - "spreadsheets/inventory_2024-08-18.csv"
+    - "spreadsheets/inventory_2024-12-09.csv"
+    - "spreadsheets/inventory_2025-04-14.csv"
+
+- query: "Paris travel"
+  relevant:
+    - "travel/itinerary_paris_2022-10-22.txt"
+    - "travel/booking_paris_2024-11-11.txt"
+    - "travel/expense_log_paris_2022-05-04.txt"
+    - "travel/packing_list_paris_2025-11-24.txt"
+
+- query: "London booking"
+  relevant:
+    - "travel/booking_london_2023-06-14.txt"
+    - "travel/packing_list_london_2023-06-12.txt"
+    - "travel/packing_list_london_2024-11-02.txt"
+    - "travel/expense_log_london_2025-11-14.txt"
+
+- query: "tax return"
+  relevant:
+    - "finance/tax_return_2024.txt"
+
+- query: "W2 form"
+  relevant:
+    - "finance/w2_form_2023.txt"
+    - "finance/w2_form_2024.txt"
+
+- query: "1099 tax form"
+  relevant:
+    - "finance/1099_form_2024.txt"
+    - "finance/1099_form_2025.txt"
+
+- query: "budget spreadsheet"
+  relevant:
+    - "spreadsheets/budget_2022-10-17.csv"
+    - "spreadsheets/budget_2024-04-07.csv"
+
+- query: "grade book"
+  relevant:
+    - "spreadsheets/grade_book_2023-03-19.csv"
+    - "spreadsheets/grade_book_2023-09-01.csv"
+
+# ── Paraphrase queries (same concept, different words) ─────────────────
+
+- query: "find my tax filing"
+  relevant:
+    - "finance/tax_return_2024.txt"
+    - "finance/tax_prep_notes_2025.txt"
+
+- query: "how much did I spend on my trip"
+  relevant:
+    - "travel/expense_log_berlin_2024-07-22.txt"
+    - "travel/expense_log_lisbon_2024-09-18.txt"
+    - "travel/expense_log_london_2025-11-14.txt"
+    - "travel/expense_log_paris_2022-05-04.txt"
+    - "travel/expense_log_tokyo_2022-12-04.txt"
+    - "travel/expense_log_vancouver_2023-02-15.txt"
+
+- query: "job application materials"
+  relevant:
+    - "resumes/resume_alice_nguyen.txt"
+    - "resumes/resume_elena_singh.txt"
+    - "resumes/resume_grace_olsen.txt"
+    - "resumes/resume_hiro_baker.txt"
+    - "resumes/resume_james_chen.txt"
+    - "resumes/resume_kira_ito.txt"
+    - "resumes/resume_maya_evans.txt"
+    - "resumes/resume_noah_wang.txt"
+    - "resumes/resume_priya_singh.txt"
+    - "letters/cover_letter_hiro_xu_2024-03-16.txt"
+    - "letters/cover_letter_wendy_nguyen_2022-11-19.txt"
+
+- query: "someone wrote me a recommendation"
+  relevant:
+    - "letters/recommendation_grace_singh_2023-04-04.txt"
+    - "letters/recommendation_wendy_yamada_2025-12-15.txt"
+
+- query: "lecture notes for algorithms"
+  relevant:
+    - "class_notes/CS301_week12_2023-01-19.md"
+    - "class_notes/CS201_week13_2022-03-08.md"
+    - "class_notes/CS201_week15_2023-08-12.md"
+
+- query: "what I bought at the office supply store"
+  relevant:
+    - "receipts/receipt_officedepot_plus_2022-06-03.txt"
+    - "receipts/receipt_officedepot_plus_2022-09-07.txt"
+    - "receipts/receipt_officedepot_plus_2022-12-09.txt"
+    - "receipts/receipt_officedepot_plus_2023-02-13.txt"
+    - "receipts/receipt_officedepot_plus_2023-04-07.txt"
+    - "receipts/receipt_officedepot_plus_2023-11-06.txt"
+    - "receipts/receipt_officedepot_plus_2024-09-28.txt"
+    - "receipts/receipt_officedepot_plus_2024-11-17.txt"
+
+- query: "CV for job search"
+  relevant:
+    - "resumes/resume_alice_nguyen.txt"
+    - "resumes/resume_elena_singh.txt"
+    - "resumes/resume_grace_olsen.txt"
+    - "resumes/resume_hiro_baker.txt"
+    - "resumes/resume_james_chen.txt"
+    - "resumes/resume_kira_ito.txt"
+    - "resumes/resume_maya_evans.txt"
+    - "resumes/resume_noah_wang.txt"
+    - "resumes/resume_priya_singh.txt"
+
+- query: "upcoming vacation plans"
+  relevant:
+    - "travel/itinerary_barcelona_2024-08-02.txt"
+    - "travel/itinerary_paris_2022-10-22.txt"
+    - "travel/itinerary_sydney_2024-05-19.txt"
+    - "travel/itinerary_vancouver_2023-02-05.txt"
+
+- query: "bills I need to pay"
+  relevant:
+    - "invoices/invoice_bright_solutions_INV-3041.txt"
+    - "invoices/invoice_bright_solutions_INV-6238.txt"
+    - "invoices/invoice_bright_solutions_INV-8144.txt"
+    - "invoices/invoice_cascade_labs_INV-2193.txt"
+    - "invoices/invoice_cascade_labs_INV-8119.txt"
+    - "invoices/invoice_delta_systems_INV-2052.txt"
+    - "invoices/invoice_delta_systems_INV-5082.txt"
+
+- query: "performance evaluation"
+  relevant:
+    - "reports/performance_review_2023-08-17.md"
+    - "reports/performance_review_2023-10-23.md"
+    - "reports/performance_review_2024-11-23.md"
+
+- query: "things to pack for my trip"
+  relevant:
+    - "travel/packing_list_berlin_2025-03-03.txt"
+    - "travel/packing_list_london_2023-06-12.txt"
+    - "travel/packing_list_london_2024-11-02.txt"
+    - "travel/packing_list_paris_2025-11-24.txt"
+
+# ── Cross-type queries ─────────────────────────────────────────────────
+
+- query: "find the receipt for tax preparation"
+  relevant:
+    - "finance/tax_prep_notes_2025.txt"
+    - "finance/tax_return_2024.txt"
+    - "finance/deductions_summary_2023.txt"
+    - "finance/deductions_summary_2024.txt"
+    - "finance/deductions_summary_2025.txt"
+
+- query: "Bright Solutions billing"
+  relevant:
+    - "invoices/invoice_bright_solutions_INV-3041.txt"
+    - "invoices/invoice_bright_solutions_INV-6238.txt"
+    - "invoices/invoice_bright_solutions_INV-8144.txt"
+
+- query: "anything about machine learning"
+  relevant:
+    - "class_notes/CS401_week15_2024-11-03.md"
+    - "resumes/resume_alice_nguyen.txt"
+    - "resumes/resume_elena_singh.txt"
+    - "resumes/resume_grace_olsen.txt"
+    - "resumes/resume_hiro_baker.txt"
+    - "resumes/resume_james_chen.txt"
+    - "resumes/resume_kira_ito.txt"
+    - "resumes/resume_maya_evans.txt"
+    - "resumes/resume_noah_wang.txt"
+    - "resumes/resume_priya_singh.txt"
+
+- query: "Sydney trip hotel and itinerary"
+  relevant:
+    - "travel/booking_sydney_2024-03-27.txt"
+    - "travel/itinerary_sydney_2024-05-19.txt"
+
+- query: "sales numbers and revenue"
+  relevant:
+    - "spreadsheets/sales_report_2022-05-16.csv"
+    - "spreadsheets/sales_report_2022-06-18.csv"
+    - "spreadsheets/sales_report_2022-08-15.csv"
+    - "spreadsheets/sales_report_2023-01-07.csv"
+    - "spreadsheets/sales_report_2023-01-22.csv"
+
+- query: "physics homework and notes"
+  relevant:
+    - "class_notes/PHYS101_week06_2025-12-04.md"
+    - "class_notes/PHYS101_week10_2025-03-22.md"
+    - "class_notes/PHYS101_week13_2025-02-21.md"
+    - "class_notes/PHYS101_week14_2023-09-18.md"
+    - "class_notes/PHYS201_week06_2024-03-06.md"
+    - "class_notes/PHYS201_week08_2023-09-14.md"
+
+- query: "consulting invoices"
+  relevant:
+    - "invoices/invoice_jade_consulting_INV-1006.txt"
+    - "invoices/invoice_jade_consulting_INV-4501.txt"
+
+- query: "project deadline tracker"
+  relevant:
+    - "spreadsheets/project_timeline_2022-01-24.csv"
+    - "spreadsheets/project_timeline_2023-05-14.csv"
+    - "spreadsheets/project_timeline_2024-04-04.csv"
+    - "spreadsheets/project_timeline_2024-05-21.csv"
+
+- query: "money I owe"
+  relevant:
+    - "invoices/invoice_bright_solutions_INV-3041.txt"
+    - "invoices/invoice_cascade_labs_INV-2193.txt"
+    - "invoices/invoice_delta_systems_INV-2052.txt"
+    - "invoices/invoice_evergreen_inc_INV-1634.txt"
+    - "invoices/invoice_foxglove_tech_INV-4164.txt"
+    - "invoices/invoice_granite_works_INV-1320.txt"
+    - "invoices/invoice_horizon_digital_INV-1090.txt"
+    - "invoices/invoice_jade_consulting_INV-1006.txt"
+
+# ── Specific entity queries ────────────────────────────────────────────
+
+- query: "resume for Noah"
+  relevant:
+    - "resumes/resume_noah_wang.txt"
+    - "resumes/resume_noah_xu.txt"
+
+- query: "Cascade Labs invoice"
+  relevant:
+    - "invoices/invoice_cascade_labs_INV-2193.txt"
+    - "invoices/invoice_cascade_labs_INV-8119.txt"
+
+- query: "economics notes"
+  relevant:
+    - "class_notes/ECON101_week05_2025-01-03.md"
+    - "class_notes/ECON101_week15_2022-06-23.md"
+
+- query: "cloud hosting invoice"
+  relevant:
+    - "invoices/invoice_bright_solutions_INV-3041.txt"
+    - "invoices/invoice_bright_solutions_INV-6238.txt"
+    - "invoices/invoice_bright_solutions_INV-8144.txt"
+    - "invoices/invoice_cascade_labs_INV-2193.txt"
+    - "invoices/invoice_cascade_labs_INV-8119.txt"
+    - "invoices/invoice_delta_systems_INV-2052.txt"
+    - "invoices/invoice_delta_systems_INV-5082.txt"
+    - "invoices/invoice_evergreen_inc_INV-1634.txt"
+
+- query: "API client code"
+  relevant:
+    - "code/api_inventory.py"
+    - "code/api_notifications.py"
+    - "code/api_users.py"
+
+- query: "test files for code"
+  relevant:
+    - "code/test_decoder.py"
+    - "code/test_parser.py"
+    - "code/test_transformer.py"
+
+- query: "image processing utilities"
+  relevant:
+    - "code/utils_image.py"
+
+- query: "complaint letter"
+  relevant:
+    - "letters/complaint_kira_singh_2025-01-26.txt"
+    - "letters/complaint_rafael_yamada_2024-08-10.txt"
+    - "letters/complaint_sara_baker_2025-01-02.txt"
+    - "letters/complaint_xander_yamada_2024-04-21.txt"
+    - "letters/complaint_yuki_kim_2023-06-10.txt"
+
+- query: "Barcelona itinerary"
+  relevant:
+    - "travel/itinerary_barcelona_2024-08-02.txt"
+
+- query: "deductions for tax year"
+  relevant:
+    - "finance/deductions_summary_2023.txt"
+    - "finance/deductions_summary_2024.txt"
+    - "finance/deductions_summary_2025.txt"
+
+- query: "market research"
+  relevant:
+    - "reports/market_analysis_2022-10-04.md"
+    - "reports/market_analysis_2024-04-22.md"
+    - "reports/market_analysis_2024-10-19.md"
+    - "reports/research_summary_2022-02-18.md"
+    - "reports/research_summary_2022-04-18.md"
+    - "reports/research_summary_2024-01-15.md"
+    - "reports/research_summary_2025-06-05.md"
+
+- query: "expense tracking"
+  relevant:
+    - "spreadsheets/expense_tracker_2023-02-17.csv"
+    - "spreadsheets/expense_tracker_2023-06-14.csv"
+    - "travel/expense_log_berlin_2024-07-22.txt"
+    - "travel/expense_log_lisbon_2024-09-18.txt"
+    - "travel/expense_log_london_2025-11-14.txt"
+    - "travel/expense_log_paris_2022-05-04.txt"
+    - "travel/expense_log_tokyo_2022-12-04.txt"
+    - "travel/expense_log_vancouver_2023-02-15.txt"
+
+- query: "PetWorld purchase"
+  relevant:
+    - "receipts/receipt_petworld_2023-02-04.txt"
+    - "receipts/receipt_petworld_2024-05-07.txt"
+    - "receipts/receipt_petworld_2024-08-10.txt"
+
+- query: "incident report"
+  relevant:
+    - "reports/incident_report_2024-10-26.md"
+
+- query: "computer science class notes"
+  relevant:
+    - "class_notes/CS101_week05_2023-05-23.md"
+    - "class_notes/CS101_week11_2025-10-19.md"
+    - "class_notes/CS101_week12_2022-09-10.md"
+    - "class_notes/CS101_week12_2024-12-16.md"
+    - "class_notes/CS101_week14_2022-12-11.md"
+    - "class_notes/CS101_week15_2024-10-22.md"
+    - "class_notes/CS201_week13_2022-03-08.md"
+    - "class_notes/CS201_week15_2023-08-12.md"
+    - "class_notes/CS301_week12_2023-01-19.md"
+    - "class_notes/CS401_week15_2024-11-03.md"
+
+- query: "authentication code"
+  relevant:
+    - "code/utils_auth.py"
+
+- query: "thank you letter"
+  relevant:
+    - "letters/thank_you_quinn_nguyen_2023-01-08.txt"
+
+- query: "Evergreen Inc billing"
+  relevant:
+    - "invoices/invoice_evergreen_inc_INV-1634.txt"
+    - "invoices/invoice_evergreen_inc_INV-4848.txt"
+    - "invoices/invoice_evergreen_inc_INV-7624.txt"
+    - "invoices/invoice_evergreen_inc_INV-9785.txt"

@@ -1,0 +1,31 @@
+{
+  "timestamp": "20261106T204148Z",
+  "num_corpus_files": 195,
+  "index_build_time_s": 1.27,
+  "modes": {
+    "keyword": {
+      "recall_at_5": 0.5649,
+      "recall_at_10": 0.6465,
+      "mrr": 0.566,
+      "latency_p50_ms": 0.03,
+      "latency_p95_ms": 0.07,
+      "num_queries": 53
+    },
+    "embedding": {
+      "recall_at_5": 0.569,
+      "recall_at_10": 0.7354,
+      "mrr": 0.7168,
+      "latency_p50_ms": 6.15,
+      "latency_p95_ms": 44.83,
+      "num_queries": 53
+    },
+    "hybrid": {
+      "recall_at_5": 0.7059,
+      "recall_at_10": 0.7691,
+      "mrr": 0.7233,
+      "latency_p50_ms": 7.24,
+      "latency_p95_ms": 17.26,
+      "num_queries": 53
+    }
+  }
+}

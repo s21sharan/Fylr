@@ -8,6 +8,7 @@ const { getPythonPath } = require('./find_python.js');
 
 let mainWindow;
 let isOnlineMode = true; // Add default online mode state
+let currentProvider = 'gemini'; // Default provider for online mode
 let lastOrganizeUndoManifest = null;
 let liveWatcherProcess = null;
 let tokenUsage = 0;
@@ -106,9 +107,30 @@ ipcMain.handle('select-directory', async () => {
   const result = await dialog.showOpenDialog(mainWindow, {
     properties: ['openDirectory']
   });
-  
+
   if (!result.canceled) {
     return result.filePaths[0];
+  }
+  return null;
+});
+
+ipcMain.handle('select-files', async () => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    properties: ['openFile', 'multiSelections'],
+    filters: [
+      { name: 'All Files', extensions: ['*'] }
+    ]
+  });
+
+  if (!result.canceled && result.filePaths.length > 0) {
+    return result.filePaths.map(filePath => {
+      const stats = fs.statSync(filePath);
+      return {
+        name: path.basename(filePath),
+        path: filePath,
+        size: stats.size
+      };
+    });
   }
   return null;
 });
@@ -124,7 +146,8 @@ ipcMain.handle('analyze-directory', async (event, directoryPath) => {
 
     const configData = {
       directory: directoryPath,
-      online_mode: isOnlineMode  // Include online mode in config
+      online_mode: isOnlineMode,
+      provider: currentProvider
     };
 
     debug(`Config data for Python: ${JSON.stringify(configData)}`);
@@ -320,8 +343,8 @@ ipcMain.handle('chat-query', async (event, { message, currentFileStructure }) =>
     const scriptPath = path.join(__dirname, 'backend', 'chat_agent_runner.py');
     const pythonPath = getPythonPath();
 
-    // Check for API key in online mode
-    if (isOnlineMode) {
+    // Check for API key in online mode (only required for OpenAI provider)
+    if (isOnlineMode && currentProvider === 'openai') {
       const apiKey = process.env.OPENAI_API_KEY;
       if (!apiKey) {
         debug('WARNING: OpenAI API key not found but online mode requested for chat');
@@ -332,11 +355,12 @@ ipcMain.handle('chat-query', async (event, { message, currentFileStructure }) =>
       }
     }
 
-    // Include the current online mode in the configuration
+    // Include the current online mode and provider in the configuration
     fs.writeFileSync(configPath, JSON.stringify({
       message,
       currentFileStructure,
-      online_mode: isOnlineMode
+      online_mode: isOnlineMode,
+      provider: currentProvider
     }));
 
     // Call usage will only be updated if we're in online mode 
@@ -409,16 +433,17 @@ ipcMain.handle('chat-query', async (event, { message, currentFileStructure }) =>
 // Add after existing IPC handlers
 ipcMain.handle('get-files', async (event, directoryPath) => {
   try {
-    const files = await fs.promises.readdir(directoryPath, { withFileTypes: true });
-    return files
-      .filter(file => file.isFile())
-      .map(file => {
-        const filePath = path.join(directoryPath, file.name);
+    const hidden = new Set(['.DS_Store', '.localized', 'Thumbs.db', 'desktop.ini']);
+    const entries = await fs.promises.readdir(directoryPath, { withFileTypes: true });
+    return entries
+      .filter(entry => entry.isFile() && !entry.name.startsWith('.') && !hidden.has(entry.name))
+      .map(entry => {
+        const filePath = path.join(directoryPath, entry.name);
         const stats = fs.statSync(filePath);
         return {
-          name: file.name,
+          name: entry.name,
           path: filePath,
-          size: stats.size // File size in bytes
+          size: stats.size
         };
       });
   } catch (error) {
@@ -440,8 +465,15 @@ ipcMain.handle('get-online-mode', async (event) => {
   return isOnlineMode;
 });
 
+// Add handler to set current provider
+ipcMain.handle('set-provider', async (event, provider) => {
+  debug(`Setting provider: ${provider}`);
+  currentProvider = provider;
+  return currentProvider;
+});
+
 // Update generate-filenames handler
-ipcMain.handle('generate-filenames', async (event, { files, online_mode }) => {
+ipcMain.handle('generate-filenames', async (event, { files, online_mode, provider }) => {
   try {
     const configPath = path.join(app.getPath('temp'), `fylr_config_${crypto.randomUUID()}.json`);
     const scriptPath = path.join(__dirname, 'backend', 'rename_files.py');
@@ -450,7 +482,7 @@ ipcMain.handle('generate-filenames', async (event, { files, online_mode }) => {
     debug('Generating filenames with config:', { files, online_mode });
     
     // Add check for online mode and API key availability
-    if (online_mode) {
+    if (online_mode && (provider || currentProvider) === 'openai') {
       const apiKey = process.env.OPENAI_API_KEY;
       if (!apiKey) {
         debug('WARNING: OpenAI API key not found but online mode requested');
@@ -471,7 +503,8 @@ ipcMain.handle('generate-filenames', async (event, { files, online_mode }) => {
     fs.writeFileSync(configPath, JSON.stringify({
       action: 'generate',
       files: files,
-      online_mode: online_mode
+      online_mode: online_mode,
+      provider: provider || currentProvider
     }));
 
     const options = {
@@ -493,13 +526,7 @@ ipcMain.handle('generate-filenames', async (event, { files, online_mode }) => {
         if (err) {
           console.error('Python script error:', err);
           debug('Python execution failed with error:', err);
-
-          // Provide a more helpful error message
-          if (err.message && err.message.includes('ModuleNotFoundError: No module named \'moondream\'')) {
-            reject(new Error('The Moondream module is not installed. Try using online mode or install the required dependencies.'));
-          } else {
-            reject(err);
-          }
+          reject(err);
           return;
         }
 
@@ -508,7 +535,6 @@ ipcMain.handle('generate-filenames', async (event, { files, online_mode }) => {
           // Process all output lines to capture token usage
           let lastLine = '';
           for (const line of results) {
-            // Only track token usage when in online mode
             if (line.startsWith('TOKEN_USAGE:') && online_mode) {
               const tokens = parseInt(line.split(':')[1]);
               updateTokenUsage(tokens);
@@ -528,12 +554,13 @@ ipcMain.handle('generate-filenames', async (event, { files, online_mode }) => {
         }
       });
 
-      // Handle process output in real-time
+      // Handle process output in real-time -- forward logs to renderer
       pythonProcess.on('message', (message) => {
-        // Only track token usage when in online mode
         if (message.startsWith('TOKEN_USAGE:') && online_mode) {
           const tokens = parseInt(message.split(':')[1]);
           updateTokenUsage(tokens);
+        } else if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('rename-log', message);
         }
       });
 
@@ -575,7 +602,8 @@ ipcMain.handle('rename-files', async (event, filesToProcess) => {
       action: 'rename',
       files: files,
       new_names: new_names,
-      online_mode: isOnlineMode
+      online_mode: isOnlineMode,
+      provider: currentProvider
     }));
 
     const options = {
@@ -642,7 +670,9 @@ ipcMain.handle('search-index', async (event, { directory }) => {
     fs.writeFileSync(configPath, JSON.stringify({
       action: 'index',
       directory: directory,
-      index_path: indexPath
+      index_path: indexPath,
+      online_mode: isOnlineMode,
+      provider: currentProvider
     }));
 
     const options = {
@@ -689,7 +719,9 @@ ipcMain.handle('search-query', async (event, { query, k }) => {
       action: 'search',
       query: query,
       k: k || 5,
-      index_path: indexPath
+      index_path: indexPath,
+      online_mode: isOnlineMode,
+      provider: currentProvider
     }));
 
     const options = {
@@ -725,8 +757,8 @@ ipcMain.handle('search-query', async (event, { query, k }) => {
 });
 
 // Live watcher IPC handlers
-ipcMain.handle('start-live-watch', async (event, { directory, online_mode }) => {
-  debug(`Starting live watcher for: ${directory}, online_mode: ${online_mode}`);
+ipcMain.handle('start-live-watch', async (event, { directory, online_mode, provider }) => {
+  debug(`Starting live watcher for: ${directory}, online_mode: ${online_mode}, provider: ${provider || currentProvider}`);
 
   // Kill existing process if any
   if (liveWatcherProcess) {
@@ -736,7 +768,7 @@ ipcMain.handle('start-live-watch', async (event, { directory, online_mode }) => 
 
   const scriptPath = path.join(__dirname, 'backend', 'live_watcher.py');
   const pythonPath = getPythonPath();
-  const configJson = JSON.stringify({ directory, online_mode });
+  const configJson = JSON.stringify({ directory, online_mode, provider: provider || currentProvider });
 
   liveWatcherProcess = spawn(pythonPath, ['-u', scriptPath, configJson], {
     stdio: ['pipe', 'pipe', 'pipe']
