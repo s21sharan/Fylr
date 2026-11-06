@@ -180,12 +180,12 @@ def get_file_summary(file_path, online_mode=True):
                         logger.info("OpenAI API request successful")
                         result = response.tool_call
                         logger.debug(f"Structured summary: {result}")
-                        return f"{result['category']} — {result['subject']}: {result['summary']}"
+                        return f"{result['category']} - {result['subject']}: {result['summary']}"
                     except Exception as e:
                         logger.error(f"OpenAI API request failed: {str(e)}")
                         raise
                 else:
-                    # Use local LLM — no tool calling, fall back to JSON prompt
+                    # Use local LLM -- no tool calling, fall back to JSON prompt
                     prompt = """Analyze the file and respond with JSON only:
 {"category": "broad file type", "subject": "1-3 word topic", "summary": "one sentence description"}"""
                     logger.info("Making local LLM request...")
@@ -204,7 +204,7 @@ def get_file_summary(file_path, online_mode=True):
 
                     try:
                         result = json.loads(content)
-                        return f"{result['category']} — {result['subject']}: {result['summary']}"
+                        return f"{result['category']} - {result['subject']}: {result['summary']}"
                     except Exception as e:
                         logger.error(f"Error parsing JSON response: {str(e)}")
                         return content.strip()

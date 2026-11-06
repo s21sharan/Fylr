@@ -11,7 +11,7 @@ load_dotenv()
 
 from llm import get_provider, resolve_provider
 
-# Configure logging — stdout only, INFO level
+# Configure logging -- stdout only, INFO level
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
@@ -120,7 +120,7 @@ FILE_NAMING_TOOL = {
 
 def generate_file_name(summary, online_mode=True, provider=None, max_length=30):
     """Generate a concise file name based on the file summary using tool schema."""
-    # Local mode: extract filename from summary directly — no LLM call
+    # Local mode: extract filename from summary directly -- no LLM call
     if not online_mode:
         return extract_filename_from_summary(summary)
 
@@ -142,7 +142,7 @@ def generate_file_name(summary, online_mode=True, provider=None, max_length=30):
         logger.warning("No tool call returned, falling back to extraction")
         return extract_filename_from_summary(summary)
 
-    logger.info(f"Naming result — category: {result['category']}, subject: {result['subject']}, filename: {result['filename']}")
+    logger.info(f"Naming result - category: {result['category']}, subject: {result['subject']}, filename: {result['filename']}")
 
     filename = result["filename"].strip().lower()
     filename = re.sub(r'[^a-z0-9_]', '_', filename)
@@ -175,7 +175,7 @@ def _process_single_file(file, online_mode, provider=None):
             print(f"TOKEN_USAGE:{response.tokens_used}")
             if response.tool_call:
                 summary = response.tool_call.get("summary", response.content or "")
-                logger.info(f"Vision analysis — category: {response.tool_call.get('category')}, "
+                logger.info(f"Vision analysis - category: {response.tool_call.get('category')}, "
                             f"subject: {response.tool_call.get('subject')}, summary: {summary}")
             else:
                 summary = response.content
@@ -185,7 +185,7 @@ def _process_single_file(file, online_mode, provider=None):
             if summary:
                 logger.info(f"[offline vision] {file_name}: {summary}")
     else:
-        # Lazy import — only loads file_organizer (PyPDF2, etc.) when needed
+        # Lazy import -- only loads file_organizer (PyPDF2, etc.) when needed
         from file_organizer import get_file_summary
         summary = get_file_summary(file_path, online_mode)
 
@@ -205,7 +205,7 @@ def _process_single_file(file, online_mode, provider=None):
 def generate_filenames(files, online_mode=True, provider=None):
     """Generate new filenames for the given files"""
     try:
-        logger.info(f"{'Online' if online_mode else 'Local'} mode — {len(files)} files")
+        logger.info(f"{'Online' if online_mode else 'Local'} mode -- {len(files)} files")
 
         generated_names = {}
 
@@ -219,7 +219,7 @@ def generate_filenames(files, online_mode=True, provider=None):
                     if result:
                         generated_names[result[0]] = result[1]
         else:
-            # Local: sequential — Ollama can only run one inference at a time
+            # Local: sequential -- Ollama can only run one inference at a time
             for f in files:
                 result = _process_single_file(f, online_mode, provider)
                 if result:

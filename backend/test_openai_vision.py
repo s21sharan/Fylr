@@ -42,7 +42,7 @@ IMAGE_ANALYSIS_TOOL = {
 
 
 def analyze_image_with_openai(image_path):
-    """Analyze image using OpenAI Vision API — returns structured description."""
+    """Analyze image using OpenAI Vision API -- returns structured description."""
     try:
         client = _get_client()
         with open(image_path, "rb") as f:

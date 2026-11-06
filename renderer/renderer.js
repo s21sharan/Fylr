@@ -234,7 +234,7 @@ modeToggle.addEventListener('change', async (event) => {
   updateProviderDropdown(isOnline);
   await ipcRenderer.invoke('set-provider', currentProvider);
   console.log(`Mode toggled to: ${isOnline ? 'ONLINE' : 'OFFLINE'}, provider: ${currentProvider}`);
-  showMessage(`Mode set to ${isOnline ? 'ONLINE' : 'OFFLINE'} — ${currentProvider.charAt(0).toUpperCase() + currentProvider.slice(1)}`, 'info');
+  showMessage(`Mode set to ${isOnline ? 'ONLINE' : 'OFFLINE'} - ${currentProvider.charAt(0).toUpperCase() + currentProvider.slice(1)}`, 'info');
   updateLimitsBoxVisibility();
 });
 
@@ -1278,7 +1278,7 @@ function updateRenamePreview() {
     // Text display
     const newNameText = document.createElement('span');
     const displayName = generatedNames[file.name] || '';
-    newNameText.textContent = displayName || '—';
+    newNameText.textContent = displayName || '-';
     if (!displayName) newNameText.classList.add('placeholder-name');
     // Add tooltip data attribute for long filenames
     newNameText.setAttribute('data-tooltip', displayName || 'Not yet generated');

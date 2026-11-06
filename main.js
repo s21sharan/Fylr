@@ -554,7 +554,7 @@ ipcMain.handle('generate-filenames', async (event, { files, online_mode, provide
         }
       });
 
-      // Handle process output in real-time — forward logs to renderer
+      // Handle process output in real-time -- forward logs to renderer
       pythonProcess.on('message', (message) => {
         if (message.startsWith('TOKEN_USAGE:') && online_mode) {
           const tokens = parseInt(message.split(':')[1]);
