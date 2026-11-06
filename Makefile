@@ -3,8 +3,8 @@
 test:
 	python -m pytest
 
-eval-organize:
-	python eval/run_organize_eval.py
-
 eval-search:
-	python eval/run_search_eval.py
+	python3 eval/run_search_eval.py
+
+eval-organize:
+	python3 eval/run_organize_eval.py

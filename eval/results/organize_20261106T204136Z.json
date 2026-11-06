@@ -1,0 +1,26 @@
+{
+  "timestamp": "20261106T204136Z",
+  "provider": "auto",
+  "cases": {
+    "mixed_student_files": {
+      "error": "Provider unavailable or returned no results",
+      "elapsed_s": 1.16
+    },
+    "office_documents": {
+      "error": "Provider unavailable or returned no results",
+      "elapsed_s": 0.97
+    },
+    "travel_planning": {
+      "error": "Provider unavailable or returned no results",
+      "elapsed_s": 1.07
+    },
+    "finance_tax_season": {
+      "error": "Provider unavailable or returned no results",
+      "elapsed_s": 1.02
+    },
+    "creative_project": {
+      "error": "Provider unavailable or returned no results",
+      "elapsed_s": 1.42
+    }
+  }
+}

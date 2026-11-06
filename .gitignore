@@ -69,3 +69,6 @@ file_organizer_config.json
 file_structure.json
 *.log
 .claude/worktrees/
+
+# Eval corpus (generated, not committed)
+eval/corpus/
